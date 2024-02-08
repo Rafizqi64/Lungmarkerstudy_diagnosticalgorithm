@@ -6,7 +6,7 @@ class LungCancerEDA:
     def __init__(self, filepath):
         """Initialize the EDA object and load the dataset."""
         self.df = pd.read_excel(filepath)
-        self.numerical_features = ['Nodule size (1-30 mm)', 'Brock score', 'Herder score (%)', 'CA125', 'CA15.3', 'CEA', 'CYFRA 21-1', 'HE4', 'NSE', 'NSE corrected for H-index', 'proGRP', 'SCCA', '% LC in TM-model', '% NSCLC in TM-model']
+        self.numerical_features = ['Nodule size (1-30 mm)', 'Brock score (%)', 'Herder score (%)', 'CA125', 'CA15.3', 'CEA', 'CYFRA 21-1', 'HE4', 'NSE', 'NSE corrected for H-index', 'proGRP', 'SCCA', '% LC in TM-model', '% NSCLC in TM-model']
         self.categorical_features = ['Diagnose', 'Stadium', 'Family History of LC', 'Current/Former smoker', 'Previous History of Extra-thoracic Cancer', 'Emphysema', 'Nodule Type', 'Nodule Upper Lobe', 'Nodule Count', 'Spiculation', 'PET-CT Findings']
 
     def overview(self):
@@ -55,6 +55,6 @@ eda.plot_categorical_distributions()  # Distribution of categorical features
 eda.correlation_matrix()  # Correlation matrix
 
 # For multivariate analysis, specify features and hue
-features = ['', 'Brock score', 'Herder score (%)']
+features = ['', 'Brock score (%)', 'Herder score (%)']
 eda.multivariate_analysis(features, 'Diagnose')
 
