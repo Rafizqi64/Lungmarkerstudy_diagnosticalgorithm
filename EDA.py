@@ -1,12 +1,15 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
+from scipy.stats import pearsonr
 
 class ModelEDA:
     def __init__(self, filepath):
         """Load the dataset and initialize."""
         self.df = pd.read_excel(filepath)
         self.models = ['Brock score (%)', 'Herder score (%)', '% LC in TM-model', '% NSCLC in TM-model']
+        self.protein_markers = ['CA125', 'CA15.3', 'CEA', 'CYFRA 21-1', 'HE4', 'NSE', 'NSE corrected for H-index', 'proGRP', 'SCCA']
+    
     def display_dataset_info(self):
         """Display dataset information in a formatted manner."""
         print("Dataset Information:\n")
@@ -68,7 +71,7 @@ class ModelEDA:
                 unique_stages.append(unique_stages.pop(unique_stages.index('No Stadium')))
             
             # Now create the boxplot with the sorted, cleaned list
-            ax = sns.boxplot(x=stadium_series, y=model, data=self.df, order=unique_stages)
+            ax = sns.stripplot(x=stadium_series, y=model, data=self.df, order=unique_stages)
       
             ax.set_title(f'Relationship of {model} with Cancer Stages')
             ax.set_ylim(0, 103) 
@@ -97,6 +100,38 @@ class ModelEDA:
         plt.ylabel('Frequency')
         plt.xticks(rotation=45)  # Rotate the x-axis labels for better readability
         plt.show()
+    
+    def plot_protein_marker_correlations(self):
+        """Plot a heatmap of the correlation matrix for all protein markers with LC and NSCLC values."""
+        # Select only the columns related to protein markers and model scores
+        data_subset = self.df[self.protein_markers + self.models]
+        
+        # Compute the correlation matrix
+        corr_matrix = data_subset.corr()
+
+        # Plot the heatmap
+        plt.figure(figsize=(12, 10))
+        sns.heatmap(corr_matrix, annot=True, cmap='coolwarm', fmt='.2f')
+        plt.title('Correlation Heatmap of Protein Markers and LC/NSCLC Values')
+        plt.show()
+    
+    def calculate_correlations(self):
+        """Calculate and print the Pearson correlation coefficient and p-value for each pair."""
+        print("Correlation coefficients and p-values:\n")
+        for marker1 in self.protein_markers:
+            for marker2 in self.models:
+                # Ensure no NaN values are present in the series
+                clean_marker1 = self.df[marker1].dropna()
+                clean_marker2 = self.df[marker2].dropna()
+                
+                # Only proceed if there are enough values to calculate the correlation
+                if len(clean_marker1) == len(clean_marker2) and len(clean_marker1) > 1:
+                    corr, p_value = pearsonr(clean_marker1, clean_marker2)
+                    print(f"Correlation between {marker1} and {marker2}:")
+                    print(f"Coefficient={corr:.2f}, P-value={p_value:.3f}\n")
+                else:
+                    print(f"Not enough data to calculate correlation between {marker1} and {marker2}.\n")
+
 
 filepath = 'Dataset BEP Rafi.xlsx'  # Update with your actual file path
 eda = ModelEDA(filepath)
@@ -105,5 +140,7 @@ eda.display_summary_statistics() # Summary statistics
 #eda.plot_distributions()  # Distribution plots for each model score
 #eda.plot_relationship_with_diagnosis()  # Relationship of model scores with diagnosis
 #eda.correlation_with_diagnosis()  # Correlation of model scores with diagnosis
-#eda.plot_relationship_with_stadium()
-eda.plot_stadium_frequency()
+eda.plot_relationship_with_stadium() #Stripplot of the model scores with stadia of LC
+#eda.plot_stadium_frequency()
+#eda.plot_protein_marker_correlations()
+#eda.calculate_correlations()
