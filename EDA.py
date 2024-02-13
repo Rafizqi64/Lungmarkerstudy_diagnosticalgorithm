@@ -1,7 +1,7 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-from scipy.stats import pearsonr, mannwhitneyu, kruskal
+from scipy.stats import mannwhitneyu, kruskal, spearmanr
 
 class ModelEDA:
     def __init__(self, filepath):
@@ -41,19 +41,6 @@ class ModelEDA:
             plt.xlabel('Diagnosis')
             plt.ylabel(model)
             plt.show()
-
-    def correlation_with_diagnosis(self):
-        """Compute and display correlation of model scores with diagnosis (numerically encoded if necessary)."""
-        # Encode the 'Diagnose' column if it's categorical (No LC, NSCLC, etc.)
-        if self.df['Diagnose'].dtype == 'object':
-            diagnosis_mapping = {'No LC': 0, 'NSCLC': 1}  # Example mapping, adjust based on actual diagnoses
-            self.df['Diagnose_Encoded'] = self.df['Diagnose'].map(diagnosis_mapping)
-            target = 'Diagnose_Encoded'
-        else:
-
-            target = 'Diagnose'
-        # Calculate and print correlation
-        correlations = self.df[self.models + [target]].corr()[target].sort_values(ascending=False)
 
     def plot_relationship_with_stadium(self):
         """Plot the relationship of each model score with the cancer stages, handling NaN values and mixed types."""
@@ -98,7 +85,7 @@ class ModelEDA:
         plt.title('Frequency of Each Cancer Stage')
         plt.xlabel('Cancer Stage')
         plt.ylabel('Frequency')
-        plt.xticks(rotation=45)  # Rotate the x-axis labels for better readability
+        plt.xticks(rotation=45)
         plt.show()
     
     def plot_protein_marker_correlations(self):
@@ -127,7 +114,7 @@ class ModelEDA:
 
                 # Only proceed if there are enough values to calculate the correlation
                 if len(clean_marker) == len(clean_model_scores) and len(clean_marker) > 1:
-                    corr, p_val = pearsonr(clean_marker, clean_model_scores)
+                    corr, p_val = spearmanr(clean_marker, clean_model_scores)
                     significance, color = ("Significant", "\033[92m") if p_val < 0.05 else ("Not significant", "\033[91m")
                 
                     print(f"{marker} and {model}: Coefficient={corr:.2f}, P-value={p_val:.3f} {color}({significance})\033[0m")
@@ -204,18 +191,47 @@ class ModelEDA:
                               
                 else:
                     print(f"Not enough categories to test for {var}.")
+    
+    def plot_model_score_vs_nodule_size(self):
+        """Generate scatter plots overlayed with density plots for each model against nodule size."""
+        for model in self.models:
+            fig, ax = plt.subplots(figsize=(10, 6))
+            
+            # Use valid_data which has dropped NaN values for the current model
+            valid_data = self.df.dropna(subset=['Nodule size (1-30 mm)', model])
+            
+            # Scatter plot
+            sns.scatterplot(x='Nodule size (1-30 mm)', y=model, data=valid_data,
+                            edgecolor="none", legend=False, s=10, ax=ax, color='blue')
+            
+            # KDE plot overlay
+            sns.kdeplot(x='Nodule size (1-30 mm)', y=model, data=valid_data, fill=True,
+                        levels=5, alpha=0.7, color='blue', ax=ax)
+            
+            # Calculate Spearman correlation coefficient
+            rho, p_value = spearmanr(valid_data['Nodule size (1-30 mm)'], valid_data[model])
+            
+            # Annotate the plot with Spearman rho value
+            plt.annotate(f"Spearman ρ = {rho:.2f} (p = {p_value:.3f})", xy=(0.5, 0.95), xycoords='axes fraction', 
+                         ha='center', fontsize=10, backgroundcolor='white')
+            
+            plt.title(f'Scatter and Density Plot of {model} vs. Nodule Size')
+            plt.xlabel('Nodule size (1-30 mm)')
+            plt.ylabel(f'{model} Score')
+            plt.show()
 
 filepath = 'Dataset BEP Rafi.xlsx'  # Update with your actual file path
 eda = ModelEDA(filepath)
 eda.display_dataset_info()
 eda.display_summary_statistics()
 #eda.plot_distributions_model_score()
-#eda.plot_relationship_with_diagnosis()
+#eda.plot_relationship_with_diagnosis)
 #eda.correlation_with_diagnosis()
 #eda.plot_relationship_with_stadium()
 #eda.plot_stadium_frequency()
-eda.test_protein_marker_significance()
+# eda.test_protein_marker_significance()
 # eda.plot_node_size_distributions()
 # eda.plot_binary_distributions()
-eda.plot_categorical_relationship_with_models()
-eda.test_significance_of_categorical_variables()
+# eda.plot_model_score_vs_nodule_size()
+# eda.plot_categorical_relationship_with_models()
+# eda.test_significance_of_categorical_variables()
