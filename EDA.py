@@ -1,7 +1,7 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-from scipy.stats import pearsonr
+from scipy.stats import pearsonr, mannwhitneyu, kruskal
 
 class ModelEDA:
     def __init__(self, filepath):
@@ -21,7 +21,7 @@ class ModelEDA:
         print("Summary Statistics:\n")
         print(self.df[self.models].describe())
         
-    def plot_distributions(self):
+    def plot_distributions_model_score(self):
         """Plot distributions for Brock score, Herder score, and TM percentages."""
         for model in self.models:
             plt.figure(figsize=(10, 6))
@@ -114,33 +114,108 @@ class ModelEDA:
         sns.heatmap(corr_matrix, annot=True, cmap='coolwarm', fmt='.2f')
         plt.title('Correlation Heatmap of Protein Markers and LC/NSCLC Values')
         plt.show()
-    
-    def calculate_correlations(self):
-        """Calculate and print the Pearson correlation coefficient and p-value for each pair."""
-        print("Correlation coefficients and p-values:\n")
-        for marker1 in self.protein_markers:
-            for marker2 in self.models:
-                # Ensure no NaN values are present in the series
-                clean_marker1 = self.df[marker1].dropna()
-                clean_marker2 = self.df[marker2].dropna()
-                
-                # Only proceed if there are enough values to calculate the correlation
-                if len(clean_marker1) == len(clean_marker2) and len(clean_marker1) > 1:
-                    corr, p_value = pearsonr(clean_marker1, clean_marker2)
-                    print(f"Correlation between {marker1} and {marker2}:")
-                    print(f"Coefficient={corr:.2f}, P-value={p_value:.3f}\n")
-                else:
-                    print(f"Not enough data to calculate correlation between {marker1} and {marker2}.\n")
 
+    def test_protein_marker_significance(self):
+        """Calculate and print the Pearson correlation coefficient and p-value for each protein marker and model score."""
+        print("Testing correlation and significance between protein markers and model scores:\n" + "="*60)
+        for model in self.models:
+            print(f"\nTesting significance for model: {model}\n" + "="*60)
+            for marker in self.protein_markers:
+                # Ensure no NaN values are present in the series
+                clean_marker = self.df[marker].dropna()
+                clean_model_scores = self.df[model].dropna()
+
+                # Only proceed if there are enough values to calculate the correlation
+                if len(clean_marker) == len(clean_model_scores) and len(clean_marker) > 1:
+                    corr, p_val = pearsonr(clean_marker, clean_model_scores)
+                    significance, color = ("Significant", "\033[92m") if p_val < 0.05 else ("Not significant", "\033[91m")
+                
+                    print(f"{marker} and {model}: Coefficient={corr:.2f}, P-value={p_val:.3f} {color}({significance})\033[0m")
+                else:
+                    print(f"Not enough data to calculate correlation between {marker} and {model}.")
+
+    def plot_node_size_distributions(self):
+        """Visualize the distribution of numerical variables."""
+        numerical_vars = ['Nodule size (1-30 mm)']
+        for var in numerical_vars:
+            sns.histplot(self.df[var].dropna(), kde=True)
+            plt.title(f'Distribution of {var}')
+            plt.xlabel(var)
+            plt.ylabel('Frequency')
+            plt.show()
+
+    def plot_binary_distributions(self):
+        """Visualize the distribution of categorical variables."""
+        categorical_vars = ['Family History of LC', 'Current/Former smoker', 'Previous History of Extra-thoracic Cancer', 'Emphysema', 'Nodule Upper Lobe', 'Spiculation']
+          # Melt the dataframe so all values are in one column
+        melted_df = self.df[categorical_vars].melt(var_name='Variables', value_name='Values')
+        
+        plt.figure(figsize=(10, 8))
+        ax = sns.countplot(x='Values', hue='Variables', data=melted_df, palette='Set2')
+        ax.set_title('Count of Categories Across Binary Variables')
+        plt.xticks(rotation=90)
+        plt.xlabel('Categories')
+        plt.ylabel('Count')
+        plt.legend(loc='upper right')
+        plt.tight_layout()  # Adjust the plot to ensure everything fits without overlapping
+        plt.show()
+
+    def plot_categorical_relationship_with_models(self):
+        """Visualize the relationship between categorical variables and model scores."""
+        for model in self.models:
+            for var in ['Current/Former smoker', 
+                            'Previous History of Extra-thoracic Cancer', 'Emphysema', 
+                            'Nodule Type', 'Nodule Upper Lobe', 'Nodule Count', 
+                            'Spiculation', 'PET-CT Findings']:
+                sns.violinplot(x=self.df[var], y=self.df[model])
+                plt.title(f'{model} Score by {var}')
+                plt.xlabel(var)
+                plt.ylabel(f'{model} Score')
+                plt.xticks(rotation=45)
+                plt.show()
+
+    def test_significance_of_categorical_variables(self):
+        """Test for the significance of differences in model scores across binary categorical variables
+        using Mann-Whitney U test and multicoategorical variables with Kruskal-Wallis test."""
+        categorical_vars=['Current/Former smoker', 
+                            'Previous History of Extra-thoracic Cancer', 'Emphysema', 
+                            'Nodule Type', 'Nodule Upper Lobe', 'Nodule Count', 
+                            'Spiculation', 'PET-CT Findings']
+         
+        for model in self.models:
+            print(f"\nTesting significance for model: {model}\n" + "="*60)
+            for var in categorical_vars:
+                categories = self.df[var].dropna().unique()
+                
+                if len(categories) == 2:
+                    # Binary categorical variable, use Mann-Whitney U test
+                    group1 = self.df[self.df[var] == categories[0]][model].dropna()
+                    group2 = self.df[self.df[var] == categories[1]][model].dropna()
+                    u_stat, p_val = mannwhitneyu(group1, group2)
+                    significance, color = ("Significant", "\033[92m") if p_val < 0.05 else ("Not significant", "\033[91m")
+                    print(f"{var} (binary): Mann-Whitney U test: U-Statistic={u_stat}, P-value={p_val:.3f} {color}({significance})\033[0m")
+                
+                elif len(categories) > 2:
+                    # Multi-categorical variable, use Kruskal-Wallis test
+                    groups = [self.df[self.df[var] == category][model].dropna() for category in categories]
+                    k_stat, p_val = kruskal(*groups)
+                    significance, color = ("Significant", "\033[92m") if p_val < 0.05 else ("Not significant", "\033[91m")
+                    print(f"{var} (multi-category): Kruskal-Wallis test: H-Statistic={k_stat}, P-value={p_val:.3f} {color}({significance})\033[0m")
+                              
+                else:
+                    print(f"Not enough categories to test for {var}.")
 
 filepath = 'Dataset BEP Rafi.xlsx'  # Update with your actual file path
 eda = ModelEDA(filepath)
-eda.display_dataset_info()  # Dataset information
-eda.display_summary_statistics() # Summary statistics
-#eda.plot_distributions()  # Distribution plots for each model score
-#eda.plot_relationship_with_diagnosis()  # Relationship of model scores with diagnosis
-#eda.correlation_with_diagnosis()  # Correlation of model scores with diagnosis
-eda.plot_relationship_with_stadium() #Stripplot of the model scores with stadia of LC
+eda.display_dataset_info()
+eda.display_summary_statistics()
+#eda.plot_distributions_model_score()
+#eda.plot_relationship_with_diagnosis()
+#eda.correlation_with_diagnosis()
+#eda.plot_relationship_with_stadium()
 #eda.plot_stadium_frequency()
-#eda.plot_protein_marker_correlations()
-#eda.calculate_correlations()
+eda.test_protein_marker_significance()
+# eda.plot_node_size_distributions()
+# eda.plot_binary_distributions()
+eda.plot_categorical_relationship_with_models()
+eda.test_significance_of_categorical_variables()
