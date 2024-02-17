@@ -1,7 +1,8 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
-from scipy.stats import mannwhitneyu, kruskal, spearmanr
+from scipy.stats import mannwhitneyu, kruskal, spearmanr, chi2_contingency, fisher_exact
+
 
 class ModelEDA:
     def __init__(self, filepath):
@@ -32,15 +33,41 @@ class ModelEDA:
             plt.show()
 
     def plot_relationship_with_diagnosis(self):
-        """Plot the relationship of each model score with the diagnosis."""
+        """Plot the relationship of each model score with the diagnosis, coloring by category, and displaying class counts for each diagnosis right under the groups."""
         for model in self.models:
-            plt.figure(figsize=(10, 6))
-            ax = sns.boxplot(x='Diagnose', y=model, data=self.df)
-            ax.set_ylim(0, 100)  # Standardize the y-axis from 0 to 100
-            plt.title(f'{model} by Diagnosis')
-            plt.xlabel('Diagnosis')
-            plt.ylabel(model)
-            plt.show()
+            for var in ['Current/Former smoker', 
+                        'Previous History of Extra-thoracic Cancer', 'Emphysema', 
+                        'Nodule Type', 'Nodule Upper Lobe', 'Nodule Count', 
+                        'Spiculation', 'PET-CT Findings']:
+                plt.figure(figsize=(12, 8))
+                
+                # Create the strip plot
+                ax = sns.stripplot(x='Diagnose', y=model, hue=var, data=self.df, dodge=True)
+                
+                # Calculate counts for each class within each diagnosis category
+                class_counts_by_diag = self.df.groupby(['Diagnose', var]).size().unstack(fill_value=0)
+                
+                # Lower the bottom of the y-axis to make space for annotations
+                ymin, ymax = ax.get_ylim()
+                ax.set_ylim(ymin - (0.1 * ymax), ymax)
+                
+                # Annotate plot with counts right under each group
+                for i, diag in enumerate(self.df['Diagnose'].unique()):
+                    for j, category in enumerate(self.df[var].unique()):
+                        count = class_counts_by_diag.loc[diag, category] if diag in class_counts_by_diag.index and category in class_counts_by_diag.columns else 0
+                        # Adjust x positioning based on number of categories and dodge
+                        x = i + (j - len(self.df[var].unique())/2)*0.1  
+                        plt.text(x, ymin - (0.05 * ymax), f'{count}', ha='center', va='top', fontsize=9)
+                
+                plt.title(f'{model} by Diagnosis and {var}')
+                plt.xlabel('Diagnosis')
+                plt.ylabel(model)
+                
+                # Move the legend outside the plot
+                plt.legend(title=var, bbox_to_anchor=(1.05, 1), loc='upper left')
+                
+                plt.tight_layout()
+                plt.show()
 
     def plot_relationship_with_stadium(self):
         """Plot the relationship of each model score with the cancer stages, handling NaN values and mixed types."""
@@ -161,6 +188,30 @@ class ModelEDA:
                 plt.xticks(rotation=45)
                 plt.show()
 
+    def test_significance_with_diagnosis(self):
+        """Test the significance of categorical variables against the diagnosis using Chi-Square and Fisher's Exact tests."""
+        diagnosis_var = 'Diagnose'
+        categorical_vars=['Current/Former smoker', 
+                          'Previous History of Extra-thoracic Cancer', 'Emphysema', 
+                          'Nodule Type', 'Nodule Upper Lobe', 'Nodule Count', 
+                          'Spiculation', 'PET-CT Findings']
+        
+        for var in categorical_vars:
+            print(f"\nTesting significance for {var} with {diagnosis_var}:\n" + "="*60)
+            contingency_table = pd.crosstab(self.df[diagnosis_var], self.df[var])
+            
+            if contingency_table.shape[1] == 2:
+                # Binary categorical variable, use Fisher's Exact Test
+                _, p_val = fisher_exact(contingency_table)
+                test_used = "Fisher's Exact"
+            else:
+                # Multi-categorical variable, use Chi-Square Test
+                _, p_val, _, _ = chi2_contingency(contingency_table)
+                test_used = "Chi-Square"
+                
+            significance = "\033[92mSignificant\033[0m" if p_val < 0.05 else "\033[91mNot significant\033[0m"
+            print(f"{test_used} test for {var}: P-value={p_val:.3f} ({significance})")
+
     def test_significance_of_categorical_variables(self):
         """Test for the significance of differences in model scores across binary categorical variables
         using Mann-Whitney U test and multicoategorical variables with Kruskal-Wallis test."""
@@ -222,10 +273,10 @@ class ModelEDA:
 
 filepath = 'Dataset BEP Rafi.xlsx'  # Update with your actual file path
 eda = ModelEDA(filepath)
-eda.display_dataset_info()
-eda.display_summary_statistics()
+#eda.display_dataset_info()
+#eda.display_summary_statistics()
 #eda.plot_distributions_model_score()
-#eda.plot_relationship_with_diagnosis)
+# eda.plot_relationship_with_diagnosis()
 #eda.correlation_with_diagnosis()
 #eda.plot_relationship_with_stadium()
 #eda.plot_stadium_frequency()
@@ -235,3 +286,4 @@ eda.display_summary_statistics()
 # eda.plot_model_score_vs_nodule_size()
 # eda.plot_categorical_relationship_with_models()
 # eda.test_significance_of_categorical_variables()
+eda.test_significance_with_diagnosis()
