@@ -5,6 +5,9 @@ import seaborn as sns
 import statsmodels.api as sm
 from scipy.stats import (chi2_contingency, fisher_exact, kruskal, mannwhitneyu,
                          spearmanr)
+from sklearn.metrics import roc_auc_score, roc_curve
+from statsmodels.stats.outliers_influence import variance_inflation_factor
+from statsmodels.tools.tools import add_constant
 
 
 class ModelEDA:
@@ -12,12 +15,14 @@ class ModelEDA:
     def __init__(self, filepath):
         """Load the dataset and initialize."""
         self.df = pd.read_excel(filepath)
+        self.df['Diagnosis_Encoded'] = np.where(self.df['Diagnose'] == 'No LC', 0, 1)
         self.models = ['Brock score (%)', 'Herder score (%)', '% LC in TM-model', '% NSCLC in TM-model']
         self.protein_markers = ['CA125', 'CA15.3', 'CEA', 'CYFRA 21-1', 'HE4', 'NSE', 'NSE corrected for H-index', 'proGRP', 'SCCA']
-        self.categorical_vars = ['Current/Former smoker', 
-                        'Previous History of Extra-thoracic Cancer', 'Emphysema', 
-                        'Nodule Type', 'Nodule Upper Lobe', 'Nodule Count', 
-                        'Spiculation', 'PET-CT Findings']
+       #  self.categorical_vars = ['Current/Former smoker', 
+                        # 'Previous History of Extra-thoracic Cancer', 'Emphysema', 
+                        # 'Nodule Type', 'Nodule Upper Lobe', 'Nodule Count', 
+                        # 'Spiculation', 'PET-CT Findings']
+        self.categorical_vars = ['Current/Former smoker', 'Emphysema', 'Spiculation', 'PET-CT Findings']
 
     def display_dataset_info(self):
         """Display dataset information in a formatted manner."""
@@ -43,7 +48,7 @@ class ModelEDA:
             plt.show()
 
 
-    def plot_relationship_with_diagnosis(self):
+    def plot_categorial_relationship_with_diagnosis(self):
         """Plot the relationship of each model score with the diagnosis, coloring by category, and displaying class counts for each diagnosis right under the groups."""
         for model in self.models:
             for var in self.categorical_vars: 
@@ -180,16 +185,31 @@ class ModelEDA:
             plt.ylabel(f'{model} Score')
             plt.show()
 
-
-    def plot_categorical_relationship_with_models(self):
-        """Visualize the relationship between categorical variables and model scores."""
+    def plot_roc_curves(self):
+        """
+        Plots the ROC curve and calculates the AUC for each model's scores against the binary encoded diagnosis outcome.
+        """
         for model in self.models:
-            for var in self.categorical_vars: 
-                plt.title(f'{model} Score by {var}')
-                plt.xlabel(var)
-                plt.ylabel(f'{model} Score')
-                plt.xticks(rotation=45)
-                plt.show()
+            # Ensure the data is clean and contains no NaN values for both the model scores and the encoded diagnosis
+            clean_df = self.df.dropna(subset=[model, 'Diagnosis_Encoded'])
+            
+            # Extract the model scores and the true binary encoded diagnosis outcomes
+            scores = clean_df[model]
+            true_outcomes = clean_df['Diagnosis_Encoded']
+            
+            # Calculate the ROC curve and AUC
+            fpr, tpr, thresholds = roc_curve(true_outcomes, scores)
+            auc = roc_auc_score(true_outcomes, scores)
+            
+            # Plotting the ROC curve
+            plt.figure()
+            plt.plot(fpr, tpr, label=f'{model} (AUC = {auc:.2f})')
+            plt.plot([0, 1], [0, 1], 'k--', label='Chance')  # Dashed diagonal for reference
+            plt.xlabel('False Positive Rate')
+            plt.ylabel('True Positive Rate')
+            plt.title(f'ROC Curve for {model}')
+            plt.legend(loc='lower right')
+            plt.show()
 
     def test_protein_marker_significance_with_diagnosis(self):
         """Test the association between protein markers and binary diagnosis using logistic regression."""
@@ -288,19 +308,39 @@ class ModelEDA:
                 else:
                     print(f"Not enough categories to test for {var}.")
 
+    def calculate_vif_for_protein_markers(self):
+        """
+        Calculates Variance Inflation Factors (VIF) for each protein marker in the DataFrame.
+        Returns:
+        - A pandas DataFrame containing the VIF for each protein marker.
+        """
+        # Ensure only valid protein markers present in the DataFrame are considered
+        valid_protein_markers = [marker for marker in self.protein_markers if marker in self.df.columns]
+        
+        # Filter the DataFrame to include only the valid protein markers plus a constant term for the intercept
+        X = add_constant(self.df[valid_protein_markers])
+        
+        # Initialize a DataFrame to store VIF results
+        vif_data = pd.DataFrame()
+        vif_data["Protein Marker"] = X.columns.drop('const')  # Exclude the constant term from the results
+        vif_data["VIF"] = [variance_inflation_factor(X.values, i) for i in range(1, len(X.columns))]  # Skip the first index for 'const'
+
+        return vif_data
 
 filepath = 'Dataset BEP Rafi.xlsx'  # Update with your actual file path
 eda = ModelEDA(filepath)
 #eda.display_dataset_info()
 #eda.display_summary_statistics()
 #eda.plot_distributions_model_score()
-#eda.plot_relationship_with_diagnosis()
+#eda.plot_categorial_relationship_with_diagnosis()
 #eda.plot_relationship_with_stadium()
 #eda.plot_stadium_frequency()
 # eda.plot_node_size_distributions()
 # eda.plot_model_score_vs_nodule_size()
-# eda.plot_categorical_relationship_with_models()
+eda.plot_roc_curves()
 # eda.test_significance_of_categorical_variables_with_model()
-#eda.test_protein_marker_significance_with_model()
-eda.test_significance_of_categorical_variables_with_diagnosis()
-eda.test_protein_marker_significance_with_diagnosis()
+# eda.test_protein_marker_significance_with_model()
+# eda.test_significance_of_categorical_variables_with_diagnosis()
+# eda.test_protein_marker_significance_with_diagnosis()
+# vif_results=eda.calculate_vif_for_protein_markers()
+# print(vif_results)
