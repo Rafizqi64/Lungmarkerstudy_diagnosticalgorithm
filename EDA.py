@@ -1,26 +1,36 @@
-import pandas as pd
 import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
 import seaborn as sns
-from scipy.stats import mannwhitneyu, kruskal, spearmanr, chi2_contingency, fisher_exact
+import statsmodels.api as sm
+from scipy.stats import (chi2_contingency, fisher_exact, kruskal, mannwhitneyu,
+                         spearmanr)
 
 
 class ModelEDA:
+
     def __init__(self, filepath):
         """Load the dataset and initialize."""
         self.df = pd.read_excel(filepath)
         self.models = ['Brock score (%)', 'Herder score (%)', '% LC in TM-model', '% NSCLC in TM-model']
         self.protein_markers = ['CA125', 'CA15.3', 'CEA', 'CYFRA 21-1', 'HE4', 'NSE', 'NSE corrected for H-index', 'proGRP', 'SCCA']
-    
+        self.categorical_vars = ['Current/Former smoker', 
+                        'Previous History of Extra-thoracic Cancer', 'Emphysema', 
+                        'Nodule Type', 'Nodule Upper Lobe', 'Nodule Count', 
+                        'Spiculation', 'PET-CT Findings']
+
     def display_dataset_info(self):
         """Display dataset information in a formatted manner."""
         print("Dataset Information:\n")
         self.df.info()
         print("\n" + "="*60 + "\n")
 
+
     def display_summary_statistics(self):
         """Display summary statistics for the dataset."""
         print("Summary Statistics:\n")
         print(self.df[self.models].describe())
+
         
     def plot_distributions_model_score(self):
         """Plot distributions for Brock score, Herder score, and TM percentages."""
@@ -32,13 +42,11 @@ class ModelEDA:
             plt.ylabel('Frequency')
             plt.show()
 
+
     def plot_relationship_with_diagnosis(self):
         """Plot the relationship of each model score with the diagnosis, coloring by category, and displaying class counts for each diagnosis right under the groups."""
         for model in self.models:
-            for var in ['Current/Former smoker', 
-                        'Previous History of Extra-thoracic Cancer', 'Emphysema', 
-                        'Nodule Type', 'Nodule Upper Lobe', 'Nodule Count', 
-                        'Spiculation', 'PET-CT Findings']:
+            for var in self.categorical_vars: 
                 plt.figure(figsize=(12, 8))
                 
                 # Create the strip plot
@@ -69,6 +77,7 @@ class ModelEDA:
                 plt.tight_layout()
                 plt.show()
 
+
     def plot_relationship_with_stadium(self):
         """Plot the relationship of each model score with the cancer stages, handling NaN values and mixed types."""
         for model in self.models:
@@ -94,6 +103,7 @@ class ModelEDA:
             plt.xticks(rotation=45)  # Rotate the x-axis labels for better readability if necessary
             plt.show()
 
+
     def plot_stadium_frequency(self):
         """Plot the frequency of each cancer stage, handling NaN values and the '0' category."""
         plt.figure(figsize=(10, 6))
@@ -114,6 +124,7 @@ class ModelEDA:
         plt.ylabel('Frequency')
         plt.xticks(rotation=45)
         plt.show()
+
     
     def plot_protein_marker_correlations(self):
         """Plot a heatmap of the correlation matrix for all protein markers with LC and NSCLC values."""
@@ -127,9 +138,91 @@ class ModelEDA:
         plt.figure(figsize=(12, 10))
         sns.heatmap(corr_matrix, annot=True, cmap='coolwarm', fmt='.2f')
         plt.title('Correlation Heatmap of Protein Markers and LC/NSCLC Values')
-        plt.show()
 
-    def test_protein_marker_significance(self):
+
+    def plot_node_size_distributions(self):
+        """Visualize the distribution of numerical variables."""
+        numerical_vars = ['Nodule size (1-30 mm)']
+        plt.show()
+        for var in numerical_vars:
+            sns.histplot(self.df[var].dropna(), kde=True)
+            plt.title(f'Distribution of {var}')
+            plt.xlabel(var)
+            plt.ylabel('Frequency')
+            plt.show()
+
+
+    def plot_model_score_vs_nodule_size(self):
+        """Generate scatter plots overlayed with density plots for each model against nodule size."""
+        for model in self.models:
+            fig, ax = plt.subplots(figsize=(10, 6))
+
+            # Use valid_data which has dropped NaN values for the current model
+            valid_data = self.df.dropna(subset=['Nodule size (1-30 mm)', model])
+
+            # Scatter plot
+            sns.scatterplot(x='Nodule size (1-30 mm)', y=model, data=valid_data,
+                            edgecolor="none", legend=False, s=10, ax=ax, color='blue')
+
+            # KDE plot overlay
+            sns.kdeplot(x='Nodule size (1-30 mm)', y=model, data=valid_data, fill=True,
+                        levels=5, alpha=0.7, color='blue', ax=ax)
+
+            # Calculate Spearman correlation coefficient
+            rho, p_value = spearmanr(valid_data['Nodule size (1-30 mm)'], valid_data[model])
+
+            # Annotate the plot with Spearman rho value
+            plt.annotate(f"Spearman ρ = {rho:.2f} (p = {p_value:.3f})", xy=(0.5, 0.95), xycoords='axes fraction', 
+                         ha='center', fontsize=10, backgroundcolor='white')
+
+            plt.title(f'Scatter and Density Plot of {model} vs. Nodule Size')
+            plt.xlabel('Nodule size (1-30 mm)')
+            plt.ylabel(f'{model} Score')
+            plt.show()
+
+
+    def plot_categorical_relationship_with_models(self):
+        """Visualize the relationship between categorical variables and model scores."""
+        for model in self.models:
+            for var in self.categorical_vars: 
+                plt.title(f'{model} Score by {var}')
+                plt.xlabel(var)
+                plt.ylabel(f'{model} Score')
+                plt.xticks(rotation=45)
+                plt.show()
+
+    def test_protein_marker_significance_with_diagnosis(self):
+        """Test the association between protein markers and binary diagnosis using logistic regression."""
+        print("Testing association between protein markers and diagnosis:\n" + "="*60)
+       
+        # Encode the diagnosis variable: 'No LC' to 0, 'NSCLC' to 1
+        self.df['Diagnosis_Encoded'] = np.where(self.df['Diagnose'] == 'No LC', 0, 1)
+
+        for marker in self.protein_markers:
+            print(f"\nTesting association for marker: {marker}\n" + "="*60)
+            
+            # Prepare the data: drop rows with NaN in either the marker or the encoded diagnosis
+            data = self.df.dropna(subset=[marker, 'Diagnosis_Encoded'])
+            
+            # Logistic regression
+            X = sm.add_constant(data[marker])  # Adds a constant term to the predictor
+            y = data['Diagnosis_Encoded']
+            
+            try:
+                model = sm.Logit(y, X).fit(disp=0)  # Fit the model without printing the summary
+                
+                # Extract the p-value for the marker
+                p_val = model.pvalues[marker]
+                
+                # Print the odds ratio for easier interpretation of the effect size
+                odds_ratio = np.exp(model.params[marker])
+                
+                significance = "\033[92mSignificant\033[0m" if p_val < 0.05 else "\033[91mNot significant\033[0m"
+                print(f"Marker: {marker}, Odds Ratio={odds_ratio:.4f}, P-value={p_val:.3f} ({significance})")
+            except Exception as e:
+                print(f"Could not calculate association for {marker}. Reason: {str(e)}")
+
+    def test_protein_marker_significance_with_model(self):
         """Calculate and print the Pearson correlation coefficient and p-value for each protein marker and model score."""
         print("Testing correlation and significance between protein markers and model scores:\n" + "="*60)
         for model in self.models:
@@ -143,63 +236,18 @@ class ModelEDA:
                 if len(clean_marker) == len(clean_model_scores) and len(clean_marker) > 1:
                     corr, p_val = spearmanr(clean_marker, clean_model_scores)
                     significance, color = ("Significant", "\033[92m") if p_val < 0.05 else ("Not significant", "\033[91m")
-                
                     print(f"{marker} and {model}: Coefficient={corr:.2f}, P-value={p_val:.3f} {color}({significance})\033[0m")
                 else:
                     print(f"Not enough data to calculate correlation between {marker} and {model}.")
 
-    def plot_node_size_distributions(self):
-        """Visualize the distribution of numerical variables."""
-        numerical_vars = ['Nodule size (1-30 mm)']
-        for var in numerical_vars:
-            sns.histplot(self.df[var].dropna(), kde=True)
-            plt.title(f'Distribution of {var}')
-            plt.xlabel(var)
-            plt.ylabel('Frequency')
-            plt.show()
 
-    def plot_binary_distributions(self):
-        """Visualize the distribution of categorical variables."""
-        categorical_vars = ['Family History of LC', 'Current/Former smoker', 'Previous History of Extra-thoracic Cancer', 'Emphysema', 'Nodule Upper Lobe', 'Spiculation']
-          # Melt the dataframe so all values are in one column
-        melted_df = self.df[categorical_vars].melt(var_name='Variables', value_name='Values')
-        
-        plt.figure(figsize=(10, 8))
-        ax = sns.countplot(x='Values', hue='Variables', data=melted_df, palette='Set2')
-        ax.set_title('Count of Categories Across Binary Variables')
-        plt.xticks(rotation=90)
-        plt.xlabel('Categories')
-        plt.ylabel('Count')
-        plt.legend(loc='upper right')
-        plt.tight_layout()  # Adjust the plot to ensure everything fits without overlapping
-        plt.show()
-
-    def plot_categorical_relationship_with_models(self):
-        """Visualize the relationship between categorical variables and model scores."""
-        for model in self.models:
-            for var in ['Current/Former smoker', 
-                            'Previous History of Extra-thoracic Cancer', 'Emphysema', 
-                            'Nodule Type', 'Nodule Upper Lobe', 'Nodule Count', 
-                            'Spiculation', 'PET-CT Findings']:
-                sns.violinplot(x=self.df[var], y=self.df[model])
-                plt.title(f'{model} Score by {var}')
-                plt.xlabel(var)
-                plt.ylabel(f'{model} Score')
-                plt.xticks(rotation=45)
-                plt.show()
-
-    def test_significance_with_diagnosis(self):
+    def test_significance_of_categorical_variables_with_diagnosis(self):
         """Test the significance of categorical variables against the diagnosis using Chi-Square and Fisher's Exact tests."""
         diagnosis_var = 'Diagnose'
-        categorical_vars=['Current/Former smoker', 
-                          'Previous History of Extra-thoracic Cancer', 'Emphysema', 
-                          'Nodule Type', 'Nodule Upper Lobe', 'Nodule Count', 
-                          'Spiculation', 'PET-CT Findings']
-        
-        for var in categorical_vars:
+        for var in self.categorical_vars:
             print(f"\nTesting significance for {var} with {diagnosis_var}:\n" + "="*60)
             contingency_table = pd.crosstab(self.df[diagnosis_var], self.df[var])
-            
+
             if contingency_table.shape[1] == 2:
                 # Binary categorical variable, use Fisher's Exact Test
                 _, p_val = fisher_exact(contingency_table)
@@ -212,17 +260,14 @@ class ModelEDA:
             significance = "\033[92mSignificant\033[0m" if p_val < 0.05 else "\033[91mNot significant\033[0m"
             print(f"{test_used} test for {var}: P-value={p_val:.3f} ({significance})")
 
-    def test_significance_of_categorical_variables(self):
+
+    def test_significance_of_categorical_variables_with_model(self):
         """Test for the significance of differences in model scores across binary categorical variables
         using Mann-Whitney U test and multicoategorical variables with Kruskal-Wallis test."""
-        categorical_vars=['Current/Former smoker', 
-                            'Previous History of Extra-thoracic Cancer', 'Emphysema', 
-                            'Nodule Type', 'Nodule Upper Lobe', 'Nodule Count', 
-                            'Spiculation', 'PET-CT Findings']
-         
+        
         for model in self.models:
             print(f"\nTesting significance for model: {model}\n" + "="*60)
-            for var in categorical_vars:
+            for var in self.categorical_vars:
                 categories = self.df[var].dropna().unique()
                 
                 if len(categories) == 2:
@@ -239,51 +284,23 @@ class ModelEDA:
                     k_stat, p_val = kruskal(*groups)
                     significance, color = ("Significant", "\033[92m") if p_val < 0.05 else ("Not significant", "\033[91m")
                     print(f"{var} (multi-category): Kruskal-Wallis test: H-Statistic={k_stat}, P-value={p_val:.3f} {color}({significance})\033[0m")
-                              
+              
                 else:
                     print(f"Not enough categories to test for {var}.")
-    
-    def plot_model_score_vs_nodule_size(self):
-        """Generate scatter plots overlayed with density plots for each model against nodule size."""
-        for model in self.models:
-            fig, ax = plt.subplots(figsize=(10, 6))
-            
-            # Use valid_data which has dropped NaN values for the current model
-            valid_data = self.df.dropna(subset=['Nodule size (1-30 mm)', model])
-            
-            # Scatter plot
-            sns.scatterplot(x='Nodule size (1-30 mm)', y=model, data=valid_data,
-                            edgecolor="none", legend=False, s=10, ax=ax, color='blue')
-            
-            # KDE plot overlay
-            sns.kdeplot(x='Nodule size (1-30 mm)', y=model, data=valid_data, fill=True,
-                        levels=5, alpha=0.7, color='blue', ax=ax)
-            
-            # Calculate Spearman correlation coefficient
-            rho, p_value = spearmanr(valid_data['Nodule size (1-30 mm)'], valid_data[model])
-            
-            # Annotate the plot with Spearman rho value
-            plt.annotate(f"Spearman ρ = {rho:.2f} (p = {p_value:.3f})", xy=(0.5, 0.95), xycoords='axes fraction', 
-                         ha='center', fontsize=10, backgroundcolor='white')
-            
-            plt.title(f'Scatter and Density Plot of {model} vs. Nodule Size')
-            plt.xlabel('Nodule size (1-30 mm)')
-            plt.ylabel(f'{model} Score')
-            plt.show()
+
 
 filepath = 'Dataset BEP Rafi.xlsx'  # Update with your actual file path
 eda = ModelEDA(filepath)
 #eda.display_dataset_info()
 #eda.display_summary_statistics()
 #eda.plot_distributions_model_score()
-# eda.plot_relationship_with_diagnosis()
-#eda.correlation_with_diagnosis()
+#eda.plot_relationship_with_diagnosis()
 #eda.plot_relationship_with_stadium()
 #eda.plot_stadium_frequency()
-# eda.test_protein_marker_significance()
 # eda.plot_node_size_distributions()
-# eda.plot_binary_distributions()
 # eda.plot_model_score_vs_nodule_size()
 # eda.plot_categorical_relationship_with_models()
-# eda.test_significance_of_categorical_variables()
-eda.test_significance_with_diagnosis()
+# eda.test_significance_of_categorical_variables_with_model()
+#eda.test_protein_marker_significance_with_model()
+eda.test_significance_of_categorical_variables_with_diagnosis()
+eda.test_protein_marker_significance_with_diagnosis()
