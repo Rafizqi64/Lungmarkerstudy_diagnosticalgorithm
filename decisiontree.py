@@ -20,8 +20,9 @@ class DecisionTree:
             # Initialize variables for LBx scores
             lc_score = row['% LC in TM-model']
             nsclc_score = row['% NSCLC in TM-model']
-            print(nsclc_score)
-            if row['Nodule size (1-30 mm)'] < 8:
+            if row['Nodule size (1-30 mm)'] < 5:
+                outcome = 'Discharge'
+            elif row['Nodule size (1-30 mm)'] < 8:
                 outcome = 'CT surveillance'
             elif row['Nodule size (1-30 mm)'] >= 8:
                 if lc_score < 10:
@@ -59,7 +60,9 @@ class DecisionTree:
             # Initialize variables for Brock and Herder scores
             brock_score = row['Brock score (%)']
             herder_score = row['Herder score (%)']
-            if row['Nodule size (1-30 mm)'] < 8:
+            if row['Nodule size (1-30 mm)'] < 5:
+                outcome = 'Discharge'
+            elif row['Nodule size (1-30 mm)'] < 8:
                 outcome = 'CT surveillance'
             elif row['Nodule size (1-30 mm)'] >= 8:
                 if brock_score < 10:

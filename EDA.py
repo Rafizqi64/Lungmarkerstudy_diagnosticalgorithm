@@ -245,9 +245,10 @@ class ModelEDA:
             plt.legend(loc='lower right')
             plt.show()
 
-    def plot_confusion_matrices(self, threshold=0.1):
+    def plot_confusion_matrices(self, threshold=10):
         """
-        Plots confusion matrices for each model based on a specified threshold.
+        Plots confusion matrices and calculates sensitivity and specificity for each model based on a specified threshold.
+        
         Parameters:
         - threshold: The threshold for predicting the positive class (default is 10% or 0.1).
         """
@@ -261,14 +262,71 @@ class ModelEDA:
             # Generate the confusion matrix
             cm = confusion_matrix(clean_df['Diagnosis_Encoded'], predictions)
             
+            # Calculate sensitivity (True Positive Rate) and specificity (True Negative Rate)
+            TP = cm[1, 1]
+            TN = cm[0, 0]
+            FP = cm[0, 1]
+            FN = cm[1, 0]
+            
+            sensitivity = TP / (TP + FN) if (TP + FN) else 0
+            specificity = TN / (TN + FP) if (TN + FP) else 0
+            
             # Plotting the confusion matrix
             plt.figure(figsize=(5, 5))
             sns.heatmap(cm, annot=True, fmt="d", linewidths=.5, square=True, cmap='Blues',
                         xticklabels=['No LC', 'NSCLC'], yticklabels=['No LC', 'NSCLC'])
             plt.ylabel('Actual label')
             plt.xlabel('Predicted label')
-            plt.title(f'Confusion Matrix for {model}\nThreshold: {threshold*100}%')
+            plt.title(f'Confusion Matrix for {model}\nThreshold: {threshold}%\n'
+                      f'Sensitivity: {sensitivity:.2f}, Specificity: {specificity:.2f}')
             plt.show()
+
+    def calculate_best_sensitivity_specificity(self):
+        """
+        Calculates the optimal threshold for each model based on clinical decision analysis.
+        """
+        clinical_values = {
+            'TP': -1,  # Cost/benefit of a true positive (e.g., early treatment)
+            'FP': -5,  # Cost of a false positive (e.g., unnecessary treatment)
+            'TN': 0,   # Benefit of a true negative
+            'FN': -20  # Cost of a false negative (e.g., missed diagnosis)
+        }
+        
+        optimal_results = {}
+        for model in self.models:
+            clean_df = self.df.dropna(subset=[model, 'Diagnosis_Encoded'])
+            thresholds = sorted(clean_df[model].unique())
+            best_clinical_value = float('inf')
+            best_threshold = None
+            
+            for threshold in thresholds:
+                predictions = (clean_df[model] >= threshold).astype(int)
+                cm = confusion_matrix(clean_df['Diagnosis_Encoded'], predictions)
+                TP = cm[1, 1]
+                TN = cm[0, 0]
+                FP = cm[0, 1]
+                FN = cm[1, 0]
+
+                # Calculate the clinical value for the current threshold
+                current_clinical_value = (
+                                        TP * clinical_values['TP'] +
+                                        FP * clinical_values['FP'] +
+                                        TN * clinical_values['TN'] +
+                                        FN * clinical_values['FN']
+                                        )
+                # If the current clinical value is less than the best (since costs are negative, we want the least negative value),
+                # update the best clinical value and corresponding threshold
+                if current_clinical_value < best_clinical_value:
+                    best_clinical_value = current_clinical_value
+                    best_threshold = threshold
+            
+            # Assuming that lower costs are better, find the threshold with the minimum cost
+            optimal_results[model] = {
+                'Optimal Threshold': best_threshold,
+                'Clinical Value': best_clinical_value
+            }
+        print(optimal_results)
+        return optimal_results
 
     def test_protein_marker_significance_with_diagnosis(self):
         """Test the association between protein markers and binary diagnosis using logistic regression."""
@@ -396,9 +454,10 @@ eda = ModelEDA(filepath)
 #eda.plot_stadium_frequency()
 # eda.plot_node_size_distributions()
 #eda.plot_model_score_vs_nodule_size()
-eda.plot_model_score_vs_nodule_size_by_diagnosis()
+#eda.plot_model_score_vs_nodule_size_by_diagnosis()
 #eda.plot_roc_curves()
-#eda.plot_confusion_matrices()
+eda.plot_confusion_matrices()
+#eda.calculate_best_sensitivity_specificity()
 # eda.test_significance_of_categorical_variables_with_model()
 # eda.test_protein_marker_significance_with_model()
 # eda.test_significance_of_categorical_variables_with_diagnosis()
