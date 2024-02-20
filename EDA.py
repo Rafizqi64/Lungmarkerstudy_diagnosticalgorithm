@@ -47,41 +47,30 @@ class ModelEDA:
             plt.ylabel('Frequency')
             plt.show()
 
+    def plot_categorical_frequency_with_diagnosis(self):
+        """Plot frequency of each categorical variable for each diagnosis category."""
+        for var in self.categorical_vars:
+            plt.figure(figsize=(12, 8))
+            
+            # Create the count plot
+            ax = sns.countplot(x='Diagnose', hue=var, data=self.df, palette='viridis')
 
-    def plot_categorial_relationship_with_diagnosis(self):
-        """Plot the relationship of each model score with the diagnosis, coloring by category, and displaying class counts for each diagnosis right under the groups."""
-        for model in self.models:
-            for var in self.categorical_vars: 
-                plt.figure(figsize=(12, 8))
-                
-                # Create the strip plot
-                ax = sns.stripplot(x='Diagnose', y=model, hue=var, data=self.df, dodge=True)
-                
-                # Calculate counts for each class within each diagnosis category
-                class_counts_by_diag = self.df.groupby(['Diagnose', var]).size().unstack(fill_value=0)
-                
-                # Lower the bottom of the y-axis to make space for annotations
-                ymin, ymax = ax.get_ylim()
-                ax.set_ylim(ymin - (0.1 * ymax), ymax)
-                
-                # Annotate plot with counts right under each group
-                for i, diag in enumerate(self.df['Diagnose'].unique()):
-                    for j, category in enumerate(self.df[var].unique()):
-                        count = class_counts_by_diag.loc[diag, category] if diag in class_counts_by_diag.index and category in class_counts_by_diag.columns else 0
-                        # Adjust x positioning based on number of categories and dodge
-                        x = i + (j - len(self.df[var].unique())/2)*0.1  
-                        plt.text(x, ymin - (0.05 * ymax), f'{count}', ha='center', va='top', fontsize=9)
-                
-                plt.title(f'{model} by Diagnosis and {var}')
-                plt.xlabel('Diagnosis')
-                plt.ylabel(model)
-                
-                # Move the legend outside the plot
-                plt.legend(title=var, bbox_to_anchor=(1.05, 1), loc='upper left')
-                
-                plt.tight_layout()
-                plt.show()
-
+            # Annotate plot with counts
+            for p in ax.patches:
+                ax.annotate(f'{int(p.get_height())}', 
+                            (p.get_x() + p.get_width() / 2., p.get_height()), 
+                            ha='center', va='center', 
+                            xytext=(0, 10), textcoords='offset points')
+            
+            plt.title(f'Frequency of {var} by Diagnosis')
+            plt.xlabel('Diagnosis')
+            plt.ylabel('Frequency')
+            
+            # Move the legend outside the plot
+            plt.legend(title=var, bbox_to_anchor=(1.05, 1), loc='upper left')
+            
+            plt.tight_layout()
+            plt.show()
 
     def plot_relationship_with_stadium(self):
         """Plot the relationship of each model score with the cancer stages, handling NaN values and mixed types."""
@@ -155,34 +144,79 @@ class ModelEDA:
             plt.xlabel(var)
             plt.ylabel('Frequency')
             plt.show()
-
-
+    
     def plot_model_score_vs_nodule_size(self):
-        """Generate scatter plots overlayed with density plots for each model against nodule size."""
+        """Generate scatter plots overlayed with density plots for each model against nodule size, differentiated by categorical variable using shapes."""
+        for model in self.models:
+            for var in self.categorical_vars:
+                fig, ax = plt.subplots(figsize=(10, 6))
+
+                # Use valid_data which has dropped NaN values for the current model and categorical variables
+                valid_data = self.df.dropna(subset=['Nodule size (1-30 mm)', model, var])
+                
+                # KDE plot overlay
+                sns.kdeplot(x='Nodule size (1-30 mm)', y=model, data=valid_data, fill=True,
+                            levels=5, alpha=0.7, color='grey', ax=ax)
+
+                # Define marker styles based on 'Spiculation' values
+                # You can define more markers if you have more categories
+                marker_styles = ['o', 's', 'D', '^', 'v', '<', '>', 'p', '*', 'h', 'H', '+', 'x', 'X', 'd', '|', '_']
+
+                # Assign a unique marker to each value of the categorical variable
+                unique_values = valid_data[var].unique()
+                markers = {value: marker for value, marker in zip(unique_values, marker_styles)}
+
+                # Scatter plot with different shapes for 'Spiculation'
+                sns.scatterplot(x='Nodule size (1-30 mm)', y=model, data=valid_data,
+                                style=var, hue=var, markers=markers, edgecolor="none", 
+                                legend='full', s=100, ax=ax)  # Increased s for better visibility
+
+                # Calculate Spearman correlation coefficient
+                rho, p_value = spearmanr(valid_data['Nodule size (1-30 mm)'], valid_data[model])
+
+                # Annotate the plot with Spearman rho value
+                plt.annotate(f"Spearman ρ = {rho:.2f} (p = {p_value:.3f})", xy=(0.5, 0.95), 
+                             xycoords='axes fraction', ha='center', fontsize=10, 
+                             backgroundcolor='white')
+
+                plt.title(f'Scatter and Density Plot of {model} vs. Nodule Size by {var}')
+                plt.xlabel('Nodule size (1-30 mm)')
+                plt.ylabel(f'{model} Score')
+                plt.legend(title=var)
+                plt.tight_layout()  # Adjust the layout to make room for the legend
+                plt.show()
+
+    def plot_model_score_vs_nodule_size_by_diagnosis(self):
+        """Generate scatter plots overlayed with density plots for each model against nodule size, differentiated by diagnosis."""
         for model in self.models:
             fig, ax = plt.subplots(figsize=(10, 6))
 
-            # Use valid_data which has dropped NaN values for the current model
-            valid_data = self.df.dropna(subset=['Nodule size (1-30 mm)', model])
-
-            # Scatter plot
-            sns.scatterplot(x='Nodule size (1-30 mm)', y=model, data=valid_data,
-                            edgecolor="none", legend=False, s=10, ax=ax, color='blue')
-
+            # Use valid_data which has dropped NaN values for the current model and 'Diagnose'
+            valid_data = self.df.dropna(subset=['Nodule size (1-30 mm)', model, 'Diagnose'])
+            
             # KDE plot overlay
             sns.kdeplot(x='Nodule size (1-30 mm)', y=model, data=valid_data, fill=True,
-                        levels=5, alpha=0.7, color='blue', ax=ax)
+                        levels=5, alpha=0.7, color='grey', ax=ax)
+
+            # Scatter plot with points colored by 'Diagnose'
+            sns.scatterplot(x='Nodule size (1-30 mm)', y=model, data=valid_data,
+                            hue='Diagnose', style='Diagnose', 
+                            markers={'No LC': 'o', 'NSCLC': 's'},  # Define markers for each diagnosis
+                            edgecolor="none", s=100, ax=ax)  # Increased s for better visibility
 
             # Calculate Spearman correlation coefficient
             rho, p_value = spearmanr(valid_data['Nodule size (1-30 mm)'], valid_data[model])
 
             # Annotate the plot with Spearman rho value
-            plt.annotate(f"Spearman ρ = {rho:.2f} (p = {p_value:.3f})", xy=(0.5, 0.95), xycoords='axes fraction', 
-                         ha='center', fontsize=10, backgroundcolor='white')
+            plt.annotate(f"Spearman ρ = {rho:.2f} (p = {p_value:.3f})", xy=(0.5, 0.95), 
+                         xycoords='axes fraction', ha='center', fontsize=10, 
+                         backgroundcolor='white')
 
-            plt.title(f'Scatter and Density Plot of {model} vs. Nodule Size')
+            plt.title(f'Scatter and Density Plot of {model} vs. Nodule Size by Diagnosis')
             plt.xlabel('Nodule size (1-30 mm)')
             plt.ylabel(f'{model} Score')
+            plt.legend(title='Diagnose')
+            plt.tight_layout()  # Adjust the layout to make room for the legend
             plt.show()
 
     def plot_roc_curves(self):
@@ -357,13 +391,14 @@ eda = ModelEDA(filepath)
 #eda.display_dataset_info()
 #eda.display_summary_statistics()
 #eda.plot_distributions_model_score()
-#eda.plot_categorial_relationship_with_diagnosis()
+#eda.plot_categorical_frequency_with_diagnosis()
 #eda.plot_relationship_with_stadium()
 #eda.plot_stadium_frequency()
 # eda.plot_node_size_distributions()
-# eda.plot_model_score_vs_nodule_size()
+#eda.plot_model_score_vs_nodule_size()
+eda.plot_model_score_vs_nodule_size_by_diagnosis()
 #eda.plot_roc_curves()
-eda.plot_confusion_matrices()
+#eda.plot_confusion_matrices()
 # eda.test_significance_of_categorical_variables_with_model()
 # eda.test_protein_marker_significance_with_model()
 # eda.test_significance_of_categorical_variables_with_diagnosis()
