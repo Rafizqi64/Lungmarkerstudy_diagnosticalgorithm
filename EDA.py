@@ -5,7 +5,7 @@ import seaborn as sns
 import statsmodels.api as sm
 from scipy.stats import (chi2_contingency, fisher_exact, kruskal, mannwhitneyu,
                          spearmanr)
-from sklearn.metrics import roc_auc_score, roc_curve
+from sklearn.metrics import confusion_matrix, roc_auc_score, roc_curve
 from statsmodels.stats.outliers_influence import variance_inflation_factor
 from statsmodels.tools.tools import add_constant
 
@@ -211,6 +211,31 @@ class ModelEDA:
             plt.legend(loc='lower right')
             plt.show()
 
+    def plot_confusion_matrices(self, threshold=0.1):
+        """
+        Plots confusion matrices for each model based on a specified threshold.
+        Parameters:
+        - threshold: The threshold for predicting the positive class (default is 10% or 0.1).
+        """
+        for model in self.models:
+            # Ensure there are no NaN values for the model scores and diagnosis
+            clean_df = self.df.dropna(subset=[model, 'Diagnosis_Encoded'])
+            
+            # Apply threshold to model scores to generate binary predictions
+            predictions = (clean_df[model] >= threshold).astype(int)
+            
+            # Generate the confusion matrix
+            cm = confusion_matrix(clean_df['Diagnosis_Encoded'], predictions)
+            
+            # Plotting the confusion matrix
+            plt.figure(figsize=(5, 5))
+            sns.heatmap(cm, annot=True, fmt="d", linewidths=.5, square=True, cmap='Blues',
+                        xticklabels=['No LC', 'NSCLC'], yticklabels=['No LC', 'NSCLC'])
+            plt.ylabel('Actual label')
+            plt.xlabel('Predicted label')
+            plt.title(f'Confusion Matrix for {model}\nThreshold: {threshold*100}%')
+            plt.show()
+
     def test_protein_marker_significance_with_diagnosis(self):
         """Test the association between protein markers and binary diagnosis using logistic regression."""
         print("Testing association between protein markers and diagnosis:\n" + "="*60)
@@ -337,7 +362,8 @@ eda = ModelEDA(filepath)
 #eda.plot_stadium_frequency()
 # eda.plot_node_size_distributions()
 # eda.plot_model_score_vs_nodule_size()
-eda.plot_roc_curves()
+#eda.plot_roc_curves()
+eda.plot_confusion_matrices()
 # eda.test_significance_of_categorical_variables_with_model()
 # eda.test_protein_marker_significance_with_model()
 # eda.test_significance_of_categorical_variables_with_diagnosis()
