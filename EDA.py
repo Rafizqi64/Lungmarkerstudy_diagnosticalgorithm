@@ -62,9 +62,9 @@ class ModelEDA:
                             ha='center', va='center', 
                             xytext=(0, 10), textcoords='offset points')
             
-            plt.title(f'Frequency of {var} by Diagnosis')
+            plt.title(f'Count of {var} by Diagnosis')
             plt.xlabel('Diagnosis')
-            plt.ylabel('Frequency')
+            plt.ylabel('Count')
             
             # Move the legend outside the plot
             plt.legend(title=var, bbox_to_anchor=(1.05, 1), loc='upper left')
@@ -245,7 +245,7 @@ class ModelEDA:
             plt.legend(loc='lower right')
             plt.show()
 
-    def plot_confusion_matrices(self, threshold=10):
+    def plot_confusion_matrices(self, threshold=50):
         """
         Plots confusion matrices and calculates sensitivity and specificity for each model based on a specified threshold.
         
