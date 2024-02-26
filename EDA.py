@@ -36,7 +36,27 @@ class ModelEDA:
         print("Summary Statistics:\n")
         print(self.df[self.models].describe())
 
+    def plot_protein_markers_distribution(self):
+        """Plots the distribution of specified protein markers by LC diagnosis with swarm plot overlay."""
+        markers_to_plot = ['CA125', 'CA15.3', 'CYFRA 21-1', 'NSE', 'NSE corrected for H-index', 'proGRP']
+        data_long = pd.melt(self.df, id_vars=['Diagnosis_Encoded'], value_vars=markers_to_plot, var_name='Marker', value_name='Level')
         
+        plt.figure(figsize=(12, 8))
+        sns.violinplot(x='Marker', y='Level', hue='Diagnosis_Encoded', data=data_long, inner=None, split=True, palette="muted")
+        sns.swarmplot(x='Marker', y='Level', hue='Diagnosis_Encoded', data=data_long, alpha=0.5, dodge=True)
+        
+        plt.xticks(rotation=45)
+        plt.title('Distribution of Protein Markers by Lung Cancer Diagnosis with Data Points')
+        plt.xlabel('Protein Marker')
+        plt.ylabel('Marker Level (ml?)')
+        plt.legend(title='Diagnosis', labels=['No LC', 'LC'])
+        handles, labels = plt.gca().get_legend_handles_labels()
+        # Explicitly set the legend labels
+        new_labels = ['No LC', 'LC']
+        plt.legend(handles=handles[0:2], labels=new_labels, title='Diagnosis')
+        plt.tight_layout()
+        plt.show()    
+
     def plot_distributions_model_score(self):
         """Plot distributions for Brock score, Herder score, and TM percentages."""
         for model in self.models:
@@ -453,10 +473,11 @@ eda = ModelEDA(filepath)
 #eda.plot_relationship_with_stadium()
 #eda.plot_stadium_frequency()
 # eda.plot_node_size_distributions()
+eda.plot_protein_markers_distribution()
 #eda.plot_model_score_vs_nodule_size()
 #eda.plot_model_score_vs_nodule_size_by_diagnosis()
 #eda.plot_roc_curves()
-eda.plot_confusion_matrices()
+#eda.plot_confusion_matrices()
 #eda.calculate_best_sensitivity_specificity()
 # eda.test_significance_of_categorical_variables_with_model()
 # eda.test_protein_marker_significance_with_model()

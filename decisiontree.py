@@ -99,13 +99,13 @@ class DecisionTree:
 
         for index, row in self.df.iterrows():
             # Initialize variables for Brock and Herder scores
-            brock_score = row['Brock score (%)']
-            herder_score = row['Herder score (%)']
+            brock_score = row['% NSCLC in TM-model']
+            herder_score = row['% LC in TM-model']
             nodule_size = row['Nodule size (1-30 mm)'] # Determine outcomes based on the Brock model score and nodule size
             if nodule_size >= 8:
-                if brock_score < 10:
+                if brock_score < 50:
                     brock_outcome = 'CT surveillance'
-                elif 10 <= brock_score < 70:
+                elif 50 <= brock_score < 70:
                     brock_outcome = 'Consider image-guided biopsy'
                 else:
                     brock_outcome = 'Consider excision or non-surgical treatment'
@@ -115,9 +115,9 @@ class DecisionTree:
 
             # Determine outcomes based on the Herder model score and nodule size
             if nodule_size >= 8:
-                if herder_score < 10:
+                if herder_score < 50:
                     herder_outcome = 'CT surveillance'
-                elif 10 <= herder_score < 70:
+                elif 50 <= herder_score < 70:
                     herder_outcome = 'Consider image-guided biopsy'
                 else:
                     herder_outcome = 'Consider excision or non-surgical treatment'
