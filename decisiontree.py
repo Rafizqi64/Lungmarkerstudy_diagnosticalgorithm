@@ -102,7 +102,9 @@ class DecisionTree:
             brock_score = row['% NSCLC in TM-model']
             herder_score = row['% LC in TM-model']
             nodule_size = row['Nodule size (1-30 mm)'] # Determine outcomes based on the Brock model score and nodule size
-            if nodule_size >= 8:
+            if nodule_size < 8:
+                brock_outcome = 'CT surveillance'
+            elif nodule_size >= 8:
                 if brock_score < 50:
                     brock_outcome = 'CT surveillance'
                 elif 50 <= brock_score < 70:
@@ -114,7 +116,9 @@ class DecisionTree:
 
 
             # Determine outcomes based on the Herder model score and nodule size
-            if nodule_size >= 8:
+            if nodule_size < 8:
+                herder_outcome = 'CT surveillance'
+            elif nodule_size >= 8:
                 if herder_score < 50:
                     herder_outcome = 'CT surveillance'
                 elif 50 <= herder_score < 70:
