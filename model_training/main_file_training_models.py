@@ -1,23 +1,24 @@
 # -*- coding: utf-8 -*-
 
-import pandas as pd
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+
 from logistic_regression_pipeline import logistic_regression_pipeline
-from ROC_curve_with_confidence_interval import ROC_curves_with_confidence_interval
+from ROC_curve_with_confidence_interval import \
+    ROC_curves_with_confidence_interval
 
-
-df_input = pd.read_excel('Example_data_train_model.xlsx')
+df_input = pd.read_excel('../Dataset BEP Rafi.xlsx')
 
 #log-10 scale the protein TMs and cell-free DNA concentrations
 X = pd.DataFrame()
-names_log10_var = ['CA125','CA15.3','CEA','CYFRA 21-1','HE4','NSE','proGRP','SCCA','cfDNA']
+names_log10_var = ['CA125','CA15.3','CEA','CYFRA 21-1','HE4','NSE','proGRP','SCCA']
 for i in range(0,len(names_log10_var)):
     X[names_log10_var[i]] = np.log10(df_input.loc[:,names_log10_var[i]])
 
-names_nolog10_var = ['ctDNA','Age','Sex']
-for j in range(0,len(names_nolog10_var)):
-    X[names_nolog10_var[j]] = df_input.loc[:,names_nolog10_var[j]]
+# names_nolog10_var = ['Age']
+# for j in range(0,len(names_nolog10_var)):
+    # X[names_nolog10_var[j]] = df_input.loc[:,names_nolog10_var[j]]
 
 y_primary = df_input.loc[:,'LC']
 y_nsclc = df_input.loc[:,'NSCLC']
@@ -25,7 +26,7 @@ y_sclc = df_input.loc[:,'SCLC']
 
 #Define the classification problem that will be addressed by the model (choose one of the 3 problems below)
 problem = 'LC' #no LC vs. LC (with PPV >= 98%)
-#problem = 'NSCLC' #no LC + SCLC vs. NSCLC (with PPV >= 95%)
+problem = 'NSCLC' #no LC + SCLC vs. NSCLC (with PPV >= 95%)
 #problem = 'SCLC' #no LC + NSCLC vs. SCLC (with PPV >= 95%)
 
 if problem == 'LC':
@@ -34,26 +35,26 @@ if problem == 'LC':
     ppv_aim = 0.98
 elif problem == 'NSCLC':
     names_classes = ['No lung cancer + SCLC','NSCLC']
-    y = y_nsclc    
+    y = y_nsclc
     ppv_aim = 0.95
 elif problem == 'SCLC':
-    names_classes = ['No lung cancer + NSCLC','SCLC']    
+    names_classes = ['No lung cancer + NSCLC','SCLC']
     y = y_sclc
     ppv_aim = 0.95
 
 #Define what input variables will be used in the model
-X = X.loc[:,['CA125','CA15.3','CEA','CYFRA 21-1','HE4','NSE','proGRP','SCCA','cfDNA','Age','ctDNA','Sex']]
- 
+X = X.loc[:,['CA125','CA15.3','CEA','CYFRA 21-1','HE4','NSE','proGRP','SCCA']]
+
 #Names of the input variables
 names_TMs = list(X)
 #Define continuous variables (cnt_var), as these will be standardized before logistic regression
-cnt_var = ['CA125','CA15.3','CEA','CYFRA 21-1','HE4','NSE','proGRP','SCCA','cfDNA','Age']
+cnt_var = ['CA125','CA15.3','CEA','CYFRA 21-1','HE4','NSE','proGRP','SCCA']
 solver = 'saga'
 
-#Run the logistic regression pipeline to retrieve the output    
-[performances_per_threshold_val, performance_val, predicted_prob, predicted_class, 
-percentage_class_one, y_pred_val_percv, y_pred_class_percv, performances_per_threshold_train, 
-performances_train, predicted_prob_train, val_indices, probabilities, coefficients, prob_thresholds, 
+#Run the logistic regression pipeline to retrieve the output
+[performances_per_threshold_val, performance_val, predicted_prob, predicted_class,
+percentage_class_one, y_pred_val_percv, y_pred_class_percv, performances_per_threshold_train,
+performances_train, predicted_prob_train, val_indices, probabilities, coefficients, prob_thresholds,
 logregs, scalers] = logistic_regression_pipeline(X, y, names_TMs, cnt_var, names_classes, solver)
 
 #performances_per_threshold_val: performance metrics per probability threshold evaluated (thresholds can be found in variable 'probabilities')
@@ -75,8 +76,8 @@ logregs, scalers] = logistic_regression_pipeline(X, y, names_TMs, cnt_var, names
 
 #The pre-set PPV could not always be met in the training set. If this is the case,
 #determine the performance of the validation set only for the training sets where the
-#pre-set PPV was met. Also save the folds of other variables where this 
-#criteria was met. 
+#pre-set PPV was met. Also save the folds of other variables where this
+#criteria was met.
 n_splits = len(logregs)
 if sum(sum(performances_per_threshold_train[:,2,:]>=ppv_aim)>0) < n_splits:
     logregs_above_thresh = []
@@ -94,7 +95,7 @@ if sum(sum(performances_per_threshold_train[:,2,:]>=ppv_aim)>0) < n_splits:
             y_pred_class_percv_above_thresh.append(y_pred_class_percv[i])
             y_pred_val_percv_above_thresh.append(y_pred_val_percv[i])
 
-    
+
     performance_val_above_thresh = performance_val[sum(performances_per_threshold_train[:,2,:]>=ppv_aim)>0]
     print('CV-folds where training set could meet pre-set PPV: %3.1f%%' %(len(performance_val_above_thresh)/len(performance_val)*100.0))
     print('Performances for these CV-folds:')
@@ -105,11 +106,11 @@ if sum(sum(performances_per_threshold_train[:,2,:]>=ppv_aim)>0) < n_splits:
     #set met the pre-set PPV criterium
     predicted_class_above_thresh = np.ones((len(y), n_splits))*np.nan
     predicted_prob_above_thresh = np.ones((len(y), n_splits))*np.nan
-    
+
     for i in range(0,len(val_indices_above_thresh)):
         predicted_class_above_thresh[val_indices_above_thresh[i],i] = y_pred_class_percv_above_thresh[i]
         predicted_prob_above_thresh[val_indices_above_thresh[i],i] = y_pred_val_percv_above_thresh[i]
-    
+
     #Compute the percentage that a patient was classified as class one for these CV-folds
     percentage_class_one_above_thresh = []
     for i in range(0,len(percentage_class_one)):
@@ -117,9 +118,9 @@ if sum(sum(performances_per_threshold_train[:,2,:]>=ppv_aim)>0) < n_splits:
 
     #Save the coefficients of the models where the PPV criterium was met
     coefficients_above_thresh = coefficients[sum(performances_per_threshold_train[:,2,:]>=ppv_aim)>0]
-    
+
 #Plot the average ROC-curve, computed using vertical averaging
-[mean_fprs, mean_tprs, std_tprs, tprs_upper, tprs_lower, 
+[mean_fprs, mean_tprs, std_tprs, tprs_upper, tprs_lower,
  median_auc, lower_iqr_auc, upper_iqr_auc, aucs] = ROC_curves_with_confidence_interval(performances_per_threshold_val, np)
 
 plt.figure()
@@ -128,11 +129,5 @@ plt.fill_between(mean_fprs, tprs_lower, tprs_upper, alpha=.2)
 plt.xlabel('False Positive Rate (1 - Specificity)')
 plt.ylabel('True Positive Rate (Sensitivity)')
 plt.tight_layout()
-
-
-
-
-
-
 
 
