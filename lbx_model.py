@@ -105,7 +105,35 @@ class LBxModel:
         print("\nNSCLC Model Formula:\n", nsclc_formula)
 
 
+class SimpleEnsemble:
+    def __init__(self, df, proba_lc, proba_nsclc):
+        self.df = df
+        self.lc_probs = proba_lc
+        self.nsclc_probs = proba_nsclc
+
+    def predict(self):
+        # Extract Brock and Herder scores, assuming they are percentages in the dataset
+        brock_scores = self.df['Brock score (%)'].values / 100.0
+        herder_scores = self.df['Herder score (%)'].values / 100.0
+
+        # Average the scores from all models
+        ensemble_scores = np.mean(np.vstack((self.lc_probs, self.nsclc_probs, brock_scores, herder_scores)), axis=0)
+        ensemble_predictions = (ensemble_scores > 0.5).astype(int)
+        return ensemble_predictions
+
+# Load and prepare data
+df = pd.read_excel('Dataset BEP Rafi.xlsx')
+df['Target'] = df['Diagnose'].apply(lambda x: 1 if x == 'NSCLC' else 0)
+
 model = LBxModel(filepath='Dataset BEP Rafi.xlsx')
 model.load_and_prepare_data()
 model.train_and_evaluate()
 model.print_model_formulas()
+
+# # Use SimpleEnsemble for final predictions
+# ensemble_model = SimpleEnsemble(df, proba_lc, proba_nsclc)
+# ensemble_predictions = ensemble_model.predict()
+
+# # Evaluate the ensemble model
+# print("Ensemble Accuracy:", accuracy_score(y_test, ensemble_predictions))
+
