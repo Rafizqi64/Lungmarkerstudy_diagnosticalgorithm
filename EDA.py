@@ -50,7 +50,7 @@ class ModelEDA:
 
             plt.title(f'Distribution of {marker} by Lung Cancer Diagnosis with Data Points')
             plt.xlabel('Protein Marker')
-            plt.ylabel('Marker Level (ng/ml)')
+            plt.ylabel('Marker Level (pg/ml)')
 
             # Handling the legend to avoid duplicates and correctly label the categories
             handles, labels = plt.gca().get_legend_handles_labels()

@@ -11,7 +11,6 @@ df = pd.read_excel('Dataset BEP Rafi.xlsx')
 # Initialize Brock and Herder models directly with their respective features and the dataset
 brock_herder_model = BrockAndHerderModel(filepath='Dataset BEP Rafi.xlsx', target='Diagnose', binary_map={'Nee': 0, 'Ja': 1})
 brock_herder_model.train_models()
-
 model_brock, model_herder = brock_herder_model.get_models()
 
 lbx_model = LBxModel(filepath='Dataset BEP Rafi.xlsx', target='Diagnose', binary_map={'Nee': 0, 'Ja': 1})
@@ -20,12 +19,10 @@ lbx_model.train_models()
 # Retrieve the trained models
 model_lc, model_nsclc = lbx_model.get_models()
 
-
 preprocessor = DataPreprocessor(filepath='Dataset BEP Rafi.xlsx', target='Diagnose', binary_map={'Nee': 0, 'Ja': 1})
 
 # Load and preprocess the data
 X, y = preprocessor.load_and_transform_data()
-
 
 # Create and use the Ensemble Model
 models = [
@@ -38,3 +35,9 @@ evaluator = ensemble_model(models=models)
 evaluator.fit_evaluate(X, y)
 evaluator.print_scores()
 
+#Plot Mean ROC Curves
+lbx_model.plot_roc_curves(lbx_model.lc_results, 'LC')
+lbx_model.plot_roc_curves(lbx_model.nsclc_results, 'NSCLC')
+brock_herder_model.plot_roc_curves(brock_herder_model.brock_results, 'Brock')  # For Brock model
+brock_herder_model.plot_roc_curves(brock_herder_model.herder_results, 'Herder')  # For Herder model
+evaluator.plot_roc_curve(X, y)
