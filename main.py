@@ -38,6 +38,6 @@ evaluator.print_scores()
 #Plot Mean ROC Curves
 lbx_model.plot_roc_curves(lbx_model.lc_results, 'LC')
 lbx_model.plot_roc_curves(lbx_model.nsclc_results, 'NSCLC')
-brock_herder_model.plot_roc_curves(brock_herder_model.brock_results, 'Brock')  # For Brock model
-brock_herder_model.plot_roc_curves(brock_herder_model.herder_results, 'Herder')  # For Herder model
+brock_herder_model.plot_roc_curves(brock_herder_model.brock_results, 'Brock')
+brock_herder_model.plot_roc_curves(brock_herder_model.herder_results, 'Herder')
 evaluator.plot_roc_curve(X, y)
