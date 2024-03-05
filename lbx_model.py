@@ -1,85 +1,73 @@
 import numpy as np
-import pandas as pd
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (accuracy_score, f1_score, precision_score,
                              recall_score, roc_auc_score)
 from sklearn.model_selection import StratifiedKFold
-from sklearn.preprocessing import StandardScaler
+
+from data_preprocessing import DataPreprocessor
 
 
 class LBxModel:
-    def __init__(self, filepath):
-        self.filepath = filepath
-        self.df = None
-        self.X_lc = None
-        self.X_nsclc = None
-        self.y = None
-        # Ensure that the models are properly initialized here
-        self.model_lc = LogisticRegression()
-        self.model_nsclc = LogisticRegression()
-        self.scores_lc = {'accuracy': [], 'precision': [], 'recall': [], 'f1': [], 'roc_auc': []}
-        self.scores_nsclc = {'accuracy': [], 'precision': [], 'recall': [], 'f1': [], 'roc_auc': []}
+    def __init__(self, filepath, target, binary_map):
+        self.preprocessor = DataPreprocessor(filepath, target, binary_map)
+        self.model_lc = LogisticRegression(solver='liblinear', random_state=42)
+        self.model_nsclc = LogisticRegression(solver='liblinear', random_state=42)
 
-
-    #==============#
-    # PREPARE DATA #
-    #==============#
-
-    def load_and_prepare_data(self):
-        # Load dataset
-        self.df = pd.read_excel(self.filepath)
-
-        # Apply 10log transformation to protein markers
-        for column in ['CYFRA 21-1', 'CEA', 'NSE', 'proGRP']:
-            self.df[column] = np.log10(self.df[column])
-
-        self.df['Target'] = self.df['Diagnose'].apply(lambda x: 1 if x == 'NSCLC' else 0)
-        self.y = self.df['Target']
-
-        # Define features for both models
-        self.X_lc = self.df[['CYFRA 21-1', 'CEA']]
-        self.X_nsclc = self.df[['CEA', 'CYFRA 21-1', 'NSE', 'proGRP']]
-
-
-    #================#
-    #    MAIN LOOP   #
-    #================#
-
-    def train_and_evaluate(self):
-        n_splits = 5
+    def train_with_cross_validation(self, X, y, n_splits=5):
         skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=42)
+        scores = {'accuracy': [], 'precision': [], 'recall': [], 'f1': [], 'roc_auc': []}
+        model = None
+        best_score = 0  # Adjust based on which metric you prioritize
 
-        for fold, (train_index, test_index) in enumerate(skf.split(self.X_lc, self.y)):
-            X_lc_train, X_lc_test = self.X_lc.iloc[train_index], self.X_lc.iloc[test_index]
-            y_lc_train, y_lc_test = self.y.iloc[train_index], self.y.iloc[test_index]
-            scaler_lc = StandardScaler().fit(X_lc_train)
-            X_lc_train_scaled = scaler_lc.transform(X_lc_train)
-            X_lc_test_scaled = scaler_lc.transform(X_lc_test)
-            self.model_lc.fit(X_lc_train_scaled, y_lc_train)
-            predictions_lc = self.model_lc.predict(X_lc_test_scaled)
-            proba_lc = self.model_lc.predict_proba(X_lc_test_scaled)[:, 1]
-            for score_name in self.scores_lc:
-                score_func = globals()[score_name + '_score']
-                self.scores_lc[score_name].append(score_func(y_lc_test, predictions_lc, **({'average': 'macro'} if score_name == 'f1' else {})))
+        for train_index, test_index in skf.split(X, y):
+            X_train, X_test = X[train_index], X[test_index]
+            y_train, y_test = y[train_index], y[test_index]
 
-            X_nsclc_train, X_nsclc_test = self.X_nsclc.iloc[train_index], self.X_nsclc.iloc[test_index]
-            y_nsclc_train, y_nsclc_test = self.y.iloc[train_index], self.y.iloc[test_index]
-            scaler_nsclc = StandardScaler().fit(X_nsclc_train)
-            X_nsclc_train_scaled = scaler_nsclc.transform(X_nsclc_train)
-            X_nsclc_test_scaled = scaler_nsclc.transform(X_nsclc_test)
-            self.model_nsclc.fit(X_nsclc_train_scaled, y_nsclc_train)
-            predictions_nsclc = self.model_nsclc.predict(X_nsclc_test_scaled)
-            proba_nsclc = self.model_nsclc.predict_proba(X_nsclc_test_scaled)[:, 1]
-            for score_name in self.scores_nsclc:
-                score_func = globals()[score_name + '_score']
-                self.scores_nsclc[score_name].append(score_func(y_nsclc_test, predictions_nsclc, **({'average': 'macro'} if score_name == 'f1' else {})))
+            model = LogisticRegression(solver='liblinear', random_state=42)
+            model.fit(X_train, y_train)
+            predictions = model.predict(X_test)
+            proba = model.predict_proba(X_test)[:, 1]
 
-        # Calculate the average of the scores for each model
-        average_scores_lc = {metric: np.mean(scores) for metric, scores in self.scores_lc.items()}
-        average_scores_nsclc = {metric: np.mean(scores) for metric, scores in self.scores_nsclc.items()}
-        print("Average LC Model Scores:", average_scores_lc)
-        print("Average NSCLC Model Scores:", average_scores_nsclc)
+            # Store scores for this fold
+            scores['accuracy'].append(accuracy_score(y_test, predictions))
+            scores['precision'].append(precision_score(y_test, predictions))
+            scores['recall'].append(recall_score(y_test, predictions))
+            scores['f1'].append(f1_score(y_test, predictions))
+            scores['roc_auc'].append(roc_auc_score(y_test, proba))
 
+        # Calculate average scores across folds
+        avg_scores = {metric: np.mean(values) for metric, values in scores.items()}
+
+        # Assuming best model selection based on average ROC AUC; adjust as needed
+        if avg_scores['roc_auc'] > best_score:
+            best_score = avg_scores['roc_auc']
+            best_model = model
+
+        print(f"Best Average ROC AUC Score: {best_score}")
+        # Optionally print other scores
+        for metric, score in avg_scores.items():
+            print(f"{metric.capitalize()} (average): {score:.4f}")
+
+        return best_model
+
+    def train_models(self):
+        # Load and preprocess the data
+        X, y = self.preprocessor.load_and_transform_data()
+
+        lc_features = ['CYFRA 21-1', 'CEA']
+        nsclc_features = ['CEA', 'CYFRA 21-1', 'NSE', 'proGRP']
+        lc_indices = self.preprocessor.get_feature_indices(lc_features)
+        nsclc_indices = self.preprocessor.get_feature_indices(nsclc_features)
+
+        X_lc = X[:, lc_indices]
+        X_nsclc = X[:, nsclc_indices]
+
+        self.model_lc = self.train_with_cross_validation(X_lc, y)
+        self.model_nsclc = self.train_with_cross_validation(X_nsclc, y)
+
+    def get_models(self):
+        print('LBx models finished training')
+        return self.model_lc, self.model_nsclc
 
     #===============#
     # MODEL FORMULA #
@@ -103,37 +91,4 @@ class LBxModel:
 
         print("LC Model Formula:\n", lc_formula)
         print("\nNSCLC Model Formula:\n", nsclc_formula)
-
-
-class SimpleEnsemble:
-    def __init__(self, df, proba_lc, proba_nsclc):
-        self.df = df
-        self.lc_probs = proba_lc
-        self.nsclc_probs = proba_nsclc
-
-    def predict(self):
-        # Extract Brock and Herder scores, assuming they are percentages in the dataset
-        brock_scores = self.df['Brock score (%)'].values / 100.0
-        herder_scores = self.df['Herder score (%)'].values / 100.0
-
-        # Average the scores from all models
-        ensemble_scores = np.mean(np.vstack((self.lc_probs, self.nsclc_probs, brock_scores, herder_scores)), axis=0)
-        ensemble_predictions = (ensemble_scores > 0.5).astype(int)
-        return ensemble_predictions
-
-# Load and prepare data
-df = pd.read_excel('Dataset BEP Rafi.xlsx')
-df['Target'] = df['Diagnose'].apply(lambda x: 1 if x == 'NSCLC' else 0)
-
-model = LBxModel(filepath='Dataset BEP Rafi.xlsx')
-model.load_and_prepare_data()
-model.train_and_evaluate()
-model.print_model_formulas()
-
-# # Use SimpleEnsemble for final predictions
-# ensemble_model = SimpleEnsemble(df, proba_lc, proba_nsclc)
-# ensemble_predictions = ensemble_model.predict()
-
-# # Evaluate the ensemble model
-# print("Ensemble Accuracy:", accuracy_score(y_test, ensemble_predictions))
 
