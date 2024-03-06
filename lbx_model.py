@@ -14,16 +14,16 @@ class LBxModel:
         self.preprocessor = DataPreprocessor(filepath, target, binary_map)
         self.model_lc = LogisticRegression(solver='liblinear', random_state=42)
         self.model_nsclc = LogisticRegression(solver='liblinear', random_state=42)
+        self.lc_features = ['CYFRA 21-1', 'CEA']
+        self.nsclc_features = ['CEA', 'CYFRA 21-1', 'NSE', 'proGRP']
 
 
     def train_models(self):
         # Load and preprocess the data
         X, y = self.preprocessor.load_and_transform_data()
 
-        lc_features = ['CYFRA 21-1', 'CEA']
-        nsclc_features = ['CEA', 'CYFRA 21-1', 'NSE', 'proGRP']
-        lc_indices = self.preprocessor.get_feature_indices(lc_features)
-        nsclc_indices = self.preprocessor.get_feature_indices(nsclc_features)
+        lc_indices = self.preprocessor.get_feature_indices(self.lc_features)
+        nsclc_indices = self.preprocessor.get_feature_indices(self.nsclc_features)
 
         X_lc = X[:, lc_indices]
         X_nsclc = X[:, nsclc_indices]
@@ -132,7 +132,7 @@ class LBxModel:
         lc_y_true = np.concatenate([y_test for y_test, _ in self.lc_results])
 
         sns.histplot(lc_prediction[lc_y_true == 0], bins=20, kde=True, label='Negatives', color='blue', alpha=0.5)
-        sns.histplot(lc_prediction[lc_y_true == 1], bins=20, kde=True, label='Positives', alpha=0.5, color='red')
+        sns.histplot(lc_prediction[lc_y_true == 1], bins=20, kde=True, label='Positives', alpha=0.7, color='red')
         plt.title('Probability Distribution for LC Model', fontsize=20)
         plt.xlabel('Probability of being Positive Class', fontsize=16)
         plt.ylabel('Density', fontsize=16)
@@ -147,7 +147,7 @@ class LBxModel:
         nsclc_y_true = np.concatenate([y_test for y_test, _ in self.nsclc_results])
 
         sns.histplot(nsclc_prediction[nsclc_y_true == 0], bins=20, kde=True, label='Negatives', color='blue', alpha=0.5)
-        sns.histplot(nsclc_prediction[nsclc_y_true == 1], bins=20, kde=True, label='Positives', alpha=0.5, color='red')
+        sns.histplot(nsclc_prediction[nsclc_y_true == 1], bins=20, kde=True, label='Positives', alpha=0.7, color='red')
         plt.title('Probability Distribution for NSCLC Model', fontsize=20)
         plt.xlabel('Probability of being Positive Class', fontsize=16)
         plt.ylabel('Density', fontsize=16)
@@ -177,8 +177,8 @@ class LBxModel:
             print("Models are not trained yet.")
             return
 
-        lc_formula = self.get_model_formula(self.model_lc, ['CYFRA 21-1', 'CEA'])
-        nsclc_formula = self.get_model_formula(self.model_nsclc, ['CEA', 'CYFRA 21-1', 'NSE', 'proGRP'])
+        lc_formula = self.get_model_formula(self.model_lc, ['CYFRA 21-1', 'CEA', 'HE4'])
+        nsclc_formula = self.get_model_formula(self.model_nsclc, ['CEA', 'CYFRA 21-1', 'NSE', 'proGRP', 'HE4'])
 
         print("LC Model Formula:\n", lc_formula)
         print("\nNSCLC Model Formula:\n", nsclc_formula)

@@ -18,7 +18,8 @@ class DataPreprocessor:
         self.df = pd.read_excel(self.filepath)
         # Exclude specified columns
         # columns_to_exclude = ['IDNR', 'Stadium', 'Brock score (%)', 'Herder score (%)', 'ctDNA mutatie', '% LC in TM-model', '% NSCLC in TM-model']
-        columns_to_exclude = ['IDNR', 'Stadium', 'Brock score (%)', 'Herder score (%)', 'ctDNA mutatie', '% LC in TM-model', '% NSCLC in TM-model', 'CA125', 'CA15.3', 'HE4', 'NSE corrected for H-index', 'SCCA']
+        # columns_to_exclude = ['IDNR', 'Stadium', 'Brock score (%)', 'Herder score (%)', 'ctDNA mutatie', '% LC in TM-model', '% NSCLC in TM-model', 'CA125', 'CA15.3', 'NSE corrected for H-index', 'SCCA']
+        columns_to_exclude = ['IDNR', 'Stadium', 'ctDNA mutatie', 'CA125', 'CA15.3', 'NSE corrected for H-index', 'SCCA']
         self.df.drop(columns_to_exclude, axis=1, inplace=True)
 
         # Apply binary mapping
@@ -32,7 +33,7 @@ class DataPreprocessor:
 
         # Apply log transformation to numerical features likely to be skewed
         # numerical_features = ['CYFRA 21-1', 'CEA', 'NSE', 'proGRP', 'CA125', 'CA15.3', 'HE4', 'NSE corrected for H-index', 'SCCA']
-        numerical_features = ['CYFRA 21-1', 'CEA', 'NSE', 'proGRP']
+        numerical_features = ['CYFRA 21-1', 'CEA', 'NSE', 'proGRP', 'HE4']
 
         for column in numerical_features:
             if column in self.df.columns:

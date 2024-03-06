@@ -16,22 +16,21 @@ class BrockAndHerderModel:
         self.fold_results = []
         self.model_brock = LogisticRegression(solver='liblinear', random_state=42)
         self.model_herder = LogisticRegression(solver='liblinear', random_state=42)
+        self.brock_features = [
+            'Family History of LC', 'Current/Former smoker', 'Emphysema',
+            'Nodule size (1-30 mm)', 'Nodule Upper Lobe', 'Nodule Count',
+            'Nodule Type']
+        self.herder_features = [
+            'Current/Former smoker', 'Previous History of Extra-thoracic Cancer',
+            'Nodule size (1-30 mm)', 'Nodule Upper Lobe', 'Spiculation',
+            'PET-CT Findings']
 
     def train_models(self):
         # Load and preprocess the data
         X, y = self.preprocessor.load_and_transform_data()
-        brock_features = [
-        'Family History of LC', 'Current/Former smoker', 'Emphysema',
-        'Nodule size (1-30 mm)', 'Nodule Upper Lobe', 'Nodule Count',
-        'Nodule Type']
-        herder_features = [
-        'Current/Former smoker', 'Previous History of Extra-thoracic Cancer',
-        'Nodule size (1-30 mm)', 'Nodule Upper Lobe', 'Spiculation',
-        'PET-CT Findings']
-
-        # Obtain list of indices for brock and herder features
-        brock_indices = self.preprocessor.get_feature_indices(brock_features)
-        herder_indices = self.preprocessor.get_feature_indices(herder_features)
+              # Obtain list of indices for brock and herder features
+        brock_indices = self.preprocessor.get_feature_indices(self.brock_features)
+        herder_indices = self.preprocessor.get_feature_indices(self.herder_features)
 
         # Select features for Brock and Herder models
         X_brock = X[:, brock_indices]
@@ -48,7 +47,6 @@ class BrockAndHerderModel:
         # Store or otherwise handle the results for plotting
         self.brock_results = brock_results
         self.herder_results = herder_results
-
 
     def train_with_cross_validation(self, X, y, n_splits=5):
         skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=42)
@@ -88,7 +86,6 @@ class BrockAndHerderModel:
         for metric, score in avg_scores.items():
             print(f"{metric.capitalize()} (average): {score:.4f}")
 
-
         return best_model
 
     def plot_roc_curves(self, model_results, model_name):
@@ -126,7 +123,7 @@ class BrockAndHerderModel:
         ax.legend(loc='lower right')
         plt.show()
 
-    def plot_prediction_histograms_with_kde(self):
+    def plot_prediction_histograms(self):
         plt.figure(figsize=(15, 7))
 
         # Brock model
@@ -134,7 +131,7 @@ class BrockAndHerderModel:
         brock_y_true = np.concatenate([y_test for y_test, _ in self.brock_results])
 
         sns.histplot(brock_prediction[brock_y_true == 0], bins=20, kde=True, label='Negatives', color='blue', alpha=0.5)
-        sns.histplot(brock_prediction[brock_y_true == 1], bins=20, kde=True, label='Positives', color='red', alpha=0.5)
+        sns.histplot(brock_prediction[brock_y_true == 1], bins=20, kde=True, label='Positives', color='red', alpha=0.7)
 
         plt.title('Probability Distribution for Brock Model', fontsize=20)
         plt.xlabel('Probability of being Positive Class', fontsize=16)
@@ -150,7 +147,7 @@ class BrockAndHerderModel:
         herder_y_true = np.concatenate([y_test for y_test, _ in self.herder_results])
 
         sns.histplot(herder_prediction[herder_y_true == 0], bins=20, kde=True, label='Negatives', color='blue', alpha=0.5)
-        sns.histplot(herder_prediction[herder_y_true == 1], bins=20, kde=True, label='Positives', color='red', alpha=0.5)
+        sns.histplot(herder_prediction[herder_y_true == 1], bins=20, kde=True, label='Positives', color='red', alpha=0.7)
 
         plt.title('Probability Distribution for Herder Model', fontsize=20)
         plt.xlabel('Probability of being Positive Class', fontsize=16)
