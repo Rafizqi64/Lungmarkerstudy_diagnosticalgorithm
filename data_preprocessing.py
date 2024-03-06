@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 from sklearn.compose import ColumnTransformer
-from sklearn.preprocessing import OneHotEncoder
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 
 class DataPreprocessor:
@@ -17,7 +17,8 @@ class DataPreprocessor:
         # Load data
         self.df = pd.read_excel(self.filepath)
         # Exclude specified columns
-        columns_to_exclude = ['IDNR', 'Stadium', 'Brock score (%)', 'Herder score (%)', 'CA125', 'CA15.3', 'HE4', 'NSE corrected for H-index', 'SCCA', 'ctDNA mutatie', '% LC in TM-model', '% NSCLC in TM-model']
+        # columns_to_exclude = ['IDNR', 'Stadium', 'Brock score (%)', 'Herder score (%)', 'ctDNA mutatie', '% LC in TM-model', '% NSCLC in TM-model']
+        columns_to_exclude = ['IDNR', 'Stadium', 'Brock score (%)', 'Herder score (%)', 'ctDNA mutatie', '% LC in TM-model', '% NSCLC in TM-model', 'CA125', 'CA15.3', 'HE4', 'NSE corrected for H-index', 'SCCA']
         self.df.drop(columns_to_exclude, axis=1, inplace=True)
 
         # Apply binary mapping
@@ -30,10 +31,17 @@ class DataPreprocessor:
         categorical_features = self.df.select_dtypes(include=['object']).columns.tolist()
 
         # Apply log transformation to numerical features likely to be skewed
+        # numerical_features = ['CYFRA 21-1', 'CEA', 'NSE', 'proGRP', 'CA125', 'CA15.3', 'HE4', 'NSE corrected for H-index', 'SCCA']
         numerical_features = ['CYFRA 21-1', 'CEA', 'NSE', 'proGRP']
+
         for column in numerical_features:
             if column in self.df.columns:
                 self.df[column] = np.log10(self.df[column] + 1)  # +1 to avoid log(0)
+
+        # Initialize the StandardScaler
+        scaler = StandardScaler()
+        # Apply standard scaling to the numerical features
+        self.df[numerical_features] = scaler.fit_transform(self.df[numerical_features])
 
         # preprocess dataset
         self.preprocessor = ColumnTransformer(transformers=[

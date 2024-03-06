@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 import numpy as np
+import seaborn as sns
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (accuracy_score, auc, f1_score, precision_score,
                              recall_score, roc_auc_score, roc_curve)
@@ -116,6 +117,43 @@ class LBxModel:
 
         ax.set(xlabel='False Positive Rate', ylabel='True Positive Rate', title=f"ROC Curve across CV folds for {model_name} model")
         ax.legend(loc='lower right')
+        plt.show()
+
+    def plot_prediction_histograms(self):
+        """
+        Plot histograms of the predicted probabilities for the LC and NSCLC models with improved aesthetics.
+        """
+        # Set the visual theme for the seaborn plots
+        sns.set(style="whitegrid")
+
+        # Plot for LC model
+        plt.figure(figsize=(15, 7))
+        lc_prediction = np.concatenate([proba for _, proba in self.lc_results])
+        lc_y_true = np.concatenate([y_test for y_test, _ in self.lc_results])
+
+        sns.histplot(lc_prediction[lc_y_true == 0], bins=20, kde=True, label='Negatives', color='blue', alpha=0.5)
+        sns.histplot(lc_prediction[lc_y_true == 1], bins=20, kde=True, label='Positives', alpha=0.5, color='red')
+        plt.title('Probability Distribution for LC Model', fontsize=20)
+        plt.xlabel('Probability of being Positive Class', fontsize=16)
+        plt.ylabel('Density', fontsize=16)
+        plt.legend(fontsize=12)
+        plt.tick_params(axis='both', which='major', labelsize=12)
+        plt.xlim(0, 1)
+        plt.show()
+
+        # Plot for NSCLC model
+        plt.figure(figsize=(15, 7))
+        nsclc_prediction = np.concatenate([proba for _, proba in self.nsclc_results])
+        nsclc_y_true = np.concatenate([y_test for y_test, _ in self.nsclc_results])
+
+        sns.histplot(nsclc_prediction[nsclc_y_true == 0], bins=20, kde=True, label='Negatives', color='blue', alpha=0.5)
+        sns.histplot(nsclc_prediction[nsclc_y_true == 1], bins=20, kde=True, label='Positives', alpha=0.5, color='red')
+        plt.title('Probability Distribution for NSCLC Model', fontsize=20)
+        plt.xlabel('Probability of being Positive Class', fontsize=16)
+        plt.ylabel('Density', fontsize=16)
+        plt.legend(fontsize=12)
+        plt.tick_params(axis='both', which='major', labelsize=12)
+        plt.xlim(0, 1)
         plt.show()
 
     def get_models(self):

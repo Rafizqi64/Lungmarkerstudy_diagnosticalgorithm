@@ -34,7 +34,9 @@ models = [
 evaluator = ensemble_model(models=models)
 evaluator.fit_evaluate(X, y)
 evaluator.print_scores()
-
+#Plot probalilities
+# lbx_model.plot_prediction_histograms()
+# brock_herder_model.plot_prediction_histograms_with_kde()
 #Plot Mean ROC Curves
 lbx_model.plot_roc_curves(lbx_model.lc_results, 'LC')
 lbx_model.plot_roc_curves(lbx_model.nsclc_results, 'NSCLC')
