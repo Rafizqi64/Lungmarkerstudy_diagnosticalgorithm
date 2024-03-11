@@ -12,14 +12,12 @@ class DataPreprocessor:
         self.df = None
         self.X = None
         self.y = None
+        self.feature_names = []
 
     def load_and_transform_data(self):
-        # Load data
         self.df = pd.read_excel(self.filepath)
         # Exclude specified columns
-        # columns_to_exclude = ['IDNR', 'Stadium', 'Brock score (%)', 'Herder score (%)', 'ctDNA mutatie', '% LC in TM-model', '% NSCLC in TM-model']
-        # columns_to_exclude = ['IDNR', 'Stadium', 'Brock score (%)', 'Herder score (%)', 'ctDNA mutatie', '% LC in TM-model', '% NSCLC in TM-model', 'CA125', 'CA15.3', 'NSE corrected for H-index', 'SCCA']
-        columns_to_exclude = ['IDNR', 'Stadium', 'ctDNA mutatie', 'CA125', 'CA15.3', 'NSE corrected for H-index', 'SCCA']
+        columns_to_exclude = ['IDNR', 'Stadium', 'ctDNA mutatie']
         self.df.drop(columns_to_exclude, axis=1, inplace=True)
 
         # Apply binary mapping
@@ -32,8 +30,7 @@ class DataPreprocessor:
         categorical_features = self.df.select_dtypes(include=['object']).columns.tolist()
 
         # Apply log transformation to numerical features likely to be skewed
-        # numerical_features = ['CYFRA 21-1', 'CEA', 'NSE', 'proGRP', 'CA125', 'CA15.3', 'HE4', 'NSE corrected for H-index', 'SCCA']
-        numerical_features = ['CYFRA 21-1', 'CEA', 'NSE', 'proGRP', 'HE4']
+        numerical_features = ['CYFRA 21-1', 'CEA', 'NSE', 'proGRP', 'CA125', 'CA15.3', 'HE4', 'NSE corrected for H-index', 'SCCA']
 
         for column in numerical_features:
             if column in self.df.columns:
@@ -50,12 +47,15 @@ class DataPreprocessor:
         ], remainder='passthrough')
 
         # separate features and target
-        self.X = self.df.drop(self.target, axis=1)
+        X = self.df.drop(self.target, axis=1)
         self.y = self.df[self.target]
 
-        # Apply preprocessing
-        self.X = self.preprocessor.fit_transform(self.X)
+        # Apply preprocessing and convert to DataFrame for feature names retention
+        X_transformed = self.preprocessor.fit_transform(X)
+        self.feature_names = self.preprocessor.get_feature_names_out()
 
+        # Convert the processed array back to a DataFrame with new feature names
+        self.X = pd.DataFrame(X_transformed, columns=self.feature_names)
         return self.X, self.y
 
     def get_feature_indices(self, features):

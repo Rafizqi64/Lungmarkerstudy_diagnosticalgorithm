@@ -2,10 +2,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
+import shap
+from sklearn.base import clone
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (accuracy_score, auc, f1_score, precision_score,
                              recall_score, roc_auc_score, roc_curve)
-from sklearn.model_selection import StratifiedKFold
+from sklearn.model_selection import GridSearchCV, StratifiedKFold
 
 from data_preprocessing import DataPreprocessor
 
@@ -17,76 +19,127 @@ class BrockAndHerderModel:
         self.model_brock = LogisticRegression(solver='liblinear', random_state=42)
         self.model_herder = LogisticRegression(solver='liblinear', random_state=42)
         self.brock_features = [
-            'Family History of LC', 'Current/Former smoker', 'Emphysema',
-            'Nodule size (1-30 mm)', 'Nodule Upper Lobe', 'Nodule Count',
-            'Nodule Type']
+            'cat__Nodule Type_GroundGlass',
+            'cat__Nodule Type_PartSolid',
+            'cat__Nodule Type_Solid',
+            'remainder__Family History of LC',
+            'remainder__Current/Former smoker',
+            'remainder__Emphysema',
+            'remainder__Nodule size (1-30 mm)',
+            'remainder__Nodule Upper Lobe',
+            'remainder__Nodule Count',
+            'remainder__Spiculation',
+        ]
+
         self.herder_features = [
-            'Current/Former smoker', 'Previous History of Extra-thoracic Cancer',
-            'Nodule size (1-30 mm)', 'Nodule Upper Lobe', 'Spiculation',
-            'PET-CT Findings']
+            'cat__PET-CT Findings_Faint',
+            'cat__PET-CT Findings_Intense',
+            'cat__PET-CT Findings_Moderate',
+            'cat__PET-CT Findings_No FDG avidity',
+            'remainder__Family History of LC',
+            'remainder__Previous History of Extra-thoracic Cancer',
+            'remainder__Emphysema',
+            'remainder__Nodule size (1-30 mm)',
+            'remainder__Nodule Upper Lobe',
+            'remainder__Nodule Count',
+            'remainder__Spiculation',
+        ]
 
     def train_models(self):
         # Load and preprocess the data
         X, y = self.preprocessor.load_and_transform_data()
-              # Obtain list of indices for brock and herder features
-        brock_indices = self.preprocessor.get_feature_indices(self.brock_features)
-        herder_indices = self.preprocessor.get_feature_indices(self.herder_features)
+        X_brock = X[self.brock_features]
+        X_herder = X[self.herder_features]
 
-        # Select features for Brock and Herder models
-        X_brock = X[:, brock_indices]
-        X_herder = X[:, herder_indices]
+        # Hyperparameter tuning for brock model
+        # print("Tuning hyperparameters for brock model...")
+        # best_estimator_brock = self.tune_hyperparameters(X_brock, y)
+
         self.fold_results = []
         self.model_brock = self.train_with_cross_validation(X_brock, y)
+        self.generate_shap_plot(X_brock, self.model_brock)
         brock_results = self.fold_results.copy()  # Make a copy for plotting
+
+        # Hyperparameter tuning for herder model
+        # print("Tuning hyperparameters for LC model...")
+        # best_estimator_lc = self.tune_hyperparameters(X_herder, y)
 
         # Reset fold_results and train Herder model
         self.fold_results = []
         self.model_herder = self.train_with_cross_validation(X_herder, y)
+        self.generate_shap_plot(X_herder, self.model_herder)
         herder_results = self.fold_results.copy()  # Make a copy for plotting
 
         # Store or otherwise handle the results for plotting
         self.brock_results = brock_results
         self.herder_results = herder_results
 
+
+    def generate_shap_plot(self, X, model):
+        # Assuming X is your feature matrix with proper column names
+        # and 'model' is a fitted scikit-learn model or compatible object.
+        explainer = shap.Explainer(model.predict, X)
+        shap_values = explainer(X)
+
+        # Check the shape of the SHAP values to ensure they match your expectations
+
+        # Plotting the SHAP values
+        shap.plots.beeswarm(shap_values)
+
     def train_with_cross_validation(self, X, y, n_splits=5):
         skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=42)
         scores = {'accuracy': [], 'precision': [], 'recall': [], 'f1': [], 'roc_auc': []}
         best_score = 0
         best_model = None
-        best_y_test = None
-        best_proba = None
 
         for train_index, test_index in skf.split(X, y):
-            X_train, X_test = X[train_index], X[test_index]
+            X_train, X_test = X.iloc[train_index], X.iloc[test_index]
             y_train, y_test = y[train_index], y[test_index]
 
-            model = LogisticRegression(solver='liblinear', random_state=42)
+            model = LogisticRegression(solver='liblinear', random_state=42) # Clone the estimator to ensure a fresh model for each fold
             model.fit(X_train, y_train)
             predictions = model.predict(X_test)
             proba = model.predict_proba(X_test)[:, 1]
-            self.fold_results.append((y_test, proba))
 
             # Calculate and store scores
-            roc_auc = roc_auc_score(y_test, proba)
             scores['accuracy'].append(accuracy_score(y_test, predictions))
             scores['precision'].append(precision_score(y_test, predictions))
             scores['recall'].append(recall_score(y_test, predictions))
             scores['f1'].append(f1_score(y_test, predictions))
-            scores['roc_auc'].append(roc_auc)
+            scores['roc_auc'].append(roc_auc_score(y_test, proba))
 
             # Update best model if this fold is better
-            if roc_auc > best_score:
-                best_score = roc_auc
+            if roc_auc_score(y_test, proba) > best_score:
+                best_score = roc_auc_score(y_test, proba)
                 best_model = model
-                best_y_test = y_test
-                best_proba = proba
 
+        # After all splits, calculate average scores
         avg_scores = {metric: np.mean(values) for metric, values in scores.items()}
-        print(f"Best Average ROC AUC Score: {best_score}")
+        print(f"Best ROC AUC Score: {best_score}")
         for metric, score in avg_scores.items():
             print(f"{metric.capitalize()} (average): {score:.4f}")
 
         return best_model
+
+    def tune_hyperparameters(self, X, y):
+        # Define the parameter grid for 'C'
+        param_grid = {'C': [0.001, 0.01, 0.1, 1, 10, 100]}
+
+        # Initialize the Logistic Regression model
+        log_reg = LogisticRegression(solver='liblinear', random_state=42)
+
+        # Setup the grid search with cross-validation
+        grid_search = GridSearchCV(log_reg, param_grid, cv=StratifiedKFold(n_splits=5, shuffle=True, random_state=42),
+                                   scoring='roc_auc', verbose=1)
+
+        # Fit the grid search to the data
+        grid_search.fit(X, y)
+
+        # Output the best parameters and the best score
+        print("Best parameters:", grid_search.best_params_)
+        print("Best ROC AUC score:", grid_search.best_score_)
+
+        return grid_search.best_estimator_
 
     def plot_roc_curves(self, model_results, model_name):
         """

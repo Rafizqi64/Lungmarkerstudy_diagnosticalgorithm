@@ -8,7 +8,7 @@ df = pd.read_excel('Dataset BEP Rafi.xlsx')
 filepath='Dataset BEP Rafi.xlsx'
 target='Diagnose'
 binary_map={'Nee': 0, 'Ja': 1}
-# Define features for each model
+
 # Initialize Brock and Herder models directly with their respective features and the dataset
 print(10*'='+"Brock and Herder"+10*"=")
 brock_herder_model = BrockAndHerderModel(filepath, target, binary_map)
@@ -26,32 +26,29 @@ model_lc, model_nsclc = lbx_model.get_models()
 models = [
     ('brock', model_brock),
     ('herder', model_herder),
-    ('lbx1', model_lc),
-    ('lbx2', model_nsclc)
+    ('nsclc', model_nsclc),
 ]
 
-print(10*'='+"Score Based Ensemble"+10*"=")
-scored_evaluator = score_based_ensemble(filepath, target, binary_map)
-scored_evaluator.fit_evaluate()
-scored_evaluator.print_scores()
-
+# print(10*'='+"Score Based Ensemble"+10*"=")
+# scored_evaluator = score_based_ensemble(filepath, target, binary_map)
+# scored_evaluator.fit_evaluate()
+# scored_evaluator.print_scores()
 
 print(10*'='+"Voting Classifier Ensemble"+10*"=")
 evaluator = ensemble_model(models, filepath, target, binary_map)
-evaluator.fit_evaluate()
-evaluator.print_scores()
+evaluator.fit_best_model()
 
-
+#Plot learning curves
 #Plot probalilities
-lbx_model.plot_prediction_histograms()
-brock_herder_model.plot_prediction_histograms()
-evaluator.plot_prediction_histogram()
-scored_evaluator.plot_prediction_histogram()
+# lbx_model.plot_prediction_histograms()
+# brock_herder_model.plot_prediction_histograms()
+#evaluator.plot_prediction_histogram()
+# scored_evaluator.plot_prediction_histogram()
 
 #Plot Mean ROC Curve
-lbx_model.plot_roc_curves(lbx_model.lc_results, 'LC')
-lbx_model.plot_roc_curves(lbx_model.nsclc_results, 'NSCLC')
-brock_herder_model.plot_roc_curves(brock_herder_model.brock_results, 'Brock')
-brock_herder_model.plot_roc_curves(brock_herder_model.herder_results, 'Herder')
-evaluator.plot_roc_curve()
-scored_evaluator.plot_roc_curve()
+# lbx_model.plot_roc_curves(lbx_model.lc_results, 'LC')
+# lbx_model.plot_roc_curves(lbx_model.nsclc_results, 'NSCLC')
+# brock_herder_model.plot_roc_curves(brock_herder_model.brock_results, 'Brock')
+# brock_herder_model.plot_roc_curves(brock_herder_model.herder_results, 'Herder')
+# evaluator.plot_roc_curve()
+# scored_evaluator.plot_roc_curve()

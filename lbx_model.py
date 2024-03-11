@@ -1,10 +1,13 @@
 import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
+import shap
+from sklearn.base import clone
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (accuracy_score, auc, f1_score, precision_score,
                              recall_score, roc_auc_score, roc_curve)
-from sklearn.model_selection import StratifiedKFold
+from sklearn.model_selection import (GridSearchCV, StratifiedKFold,
+                                     learning_curve)
 
 from data_preprocessing import DataPreprocessor
 
@@ -14,54 +17,72 @@ class LBxModel:
         self.preprocessor = DataPreprocessor(filepath, target, binary_map)
         self.model_lc = LogisticRegression(solver='liblinear', random_state=42)
         self.model_nsclc = LogisticRegression(solver='liblinear', random_state=42)
-        self.lc_features = ['CYFRA 21-1', 'CEA']
-        self.nsclc_features = ['CEA', 'CYFRA 21-1', 'NSE', 'proGRP']
-
+        self.lc_results = []
+        self.nsclc_results = []
+        self.lc_features = [
+            'remainder__CA125', 'remainder__CA15.3',
+            'remainder__CEA', 'remainder__CYFRA 21-1', 'remainder__HE4',
+            'remainder__NSE', 'remainder__NSE corrected for H-index',
+            'remainder__proGRP', 'remainder__SCCA'
+        ]
+        self.nsclc_features = [
+            'remainder__CEA', 'remainder__CYFRA 21-1', 'remainder__NSE',
+            'remainder__proGRP'
+        ]
 
     def train_models(self):
-        # Load and preprocess the data
         X, y = self.preprocessor.load_and_transform_data()
+        X_lc = X[self.lc_features]
+        X_nsclc = X[self.nsclc_features]
 
-        lc_indices = self.preprocessor.get_feature_indices(self.lc_features)
-        nsclc_indices = self.preprocessor.get_feature_indices(self.nsclc_features)
+        #Hyperparameter tuning for LC model
+        print("Tuning hyperparameters for LC model...")
+        best_estimator_lc = self.tune_hyperparameters(X_lc, y)
+        self.model_lc = self.train_with_cross_validation(X_lc, y, best_estimator_lc)
 
-        X_lc = X[:, lc_indices]
-        X_nsclc = X[:, nsclc_indices]
+        print("Generating SHAP feature importance plot for LC model...")
+        self.generate_shap_plot(X_lc, self.model_lc)
 
+        # Hyperparameter tuning for NSCLC model
+        print("Tuning hyperparameters for NSCLC model...")
+        best_estimator_nsclc = self.tune_hyperparameters(X_nsclc, y)
+        self.model_nsclc = self.train_with_cross_validation(X_nsclc, y, best_estimator_nsclc)
 
-        self.fold_results = []
-        self.model_lc = self.train_with_cross_validation(X_lc, y)
-        lc_results = self.fold_results.copy()  # Make a copy of the results for later plotting
+        print("Generating SHAP feature importance plot for NSCLC model...")
+        self.generate_shap_plot(X_nsclc, self.model_nsclc)
 
-        # Reset fold_results and train Herder model
-        self.fold_results = []
-        self.model_nsclc = self.train_with_cross_validation(X_nsclc, y)
-        nsclc_results = self.fold_results.copy()  # Make a copy for plotting
+    def generate_shap_plot(self, X, model):
+        explainer = shap.Explainer(model.predict, X)
+        shap_values = explainer(X)
+        shap.plots.beeswarm(shap_values)
 
-        # Store or otherwise handle the results for plotting
-        self.lc_results = lc_results
-        self.nsclc_results = nsclc_results
+    def train_with_cross_validation(self, X, y, estimator, n_splits=5, model_type='lc'):
+        """
+        Trains and evaluates the model using Stratified K-Fold Cross Validation.
+        Stores fold results in the appropriate class attribute based on the model type.
 
-
-    def train_with_cross_validation(self, X, y, n_splits=5):
+        Parameters:
+        - X: Features dataframe.
+        - y: Target vector.
+        - estimator: The machine learning estimator to be trained.
+        - n_splits: Number of folds for cross-validation.
+        - model_type: Indicates the type of model being trained ('lc' or 'nsclc').
+        """
         skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=42)
         scores = {'accuracy': [], 'precision': [], 'recall': [], 'f1': [], 'roc_auc': []}
         best_score = 0
         best_model = None
-        best_y_test = None
-        best_proba = None
 
         for train_index, test_index in skf.split(X, y):
-            X_train, X_test = X[train_index], X[test_index]
+            X_train, X_test = X.iloc[train_index], X.iloc[test_index]
             y_train, y_test = y[train_index], y[test_index]
 
-            model = LogisticRegression(solver='liblinear', random_state=42)
+            model = clone(estimator)  # Clone the estimator to ensure it's a fresh model for each fold
             model.fit(X_train, y_train)
             predictions = model.predict(X_test)
             proba = model.predict_proba(X_test)[:, 1]
-            self.fold_results.append((y_test, proba))
 
-            # Calculate and store scores
+            # Calculate metrics
             roc_auc = roc_auc_score(y_test, proba)
             scores['accuracy'].append(accuracy_score(y_test, predictions))
             scores['precision'].append(precision_score(y_test, predictions))
@@ -73,15 +94,72 @@ class LBxModel:
             if roc_auc > best_score:
                 best_score = roc_auc
                 best_model = model
-                best_y_test = y_test
-                best_proba = proba
+
+            # Store results for the correct model type
+            if model_type == 'lc':
+                self.lc_results.append((y_test, proba))
+            elif model_type == 'nsclc':
+                self.nsclc_results.append((y_test, proba))
 
         avg_scores = {metric: np.mean(values) for metric, values in scores.items()}
-        print(f"Best Average ROC AUC Score: {best_score}")
+        print(f"Best ROC AUC Score for {model_type.upper()} Model: {best_score:.4f}")
         for metric, score in avg_scores.items():
-            print(f"{metric.capitalize()} (average): {score:.4f}")
+            print(f"{metric.capitalize()} (average) for {model_type.upper()}: {score:.4f}")
 
         return best_model
+
+    def tune_hyperparameters(self, X, y):
+        # Define the parameter grid for 'C'
+        param_grid = {'C': [0.001, 0.01, 0.1, 1, 10, 100]}
+
+        # Initialize the Logistic Regression model
+        log_reg = LogisticRegression(solver='liblinear', random_state=42)
+
+        # Setup the grid search with cross-validation
+        grid_search = GridSearchCV(log_reg, param_grid, cv=StratifiedKFold(n_splits=5, shuffle=True, random_state=42),
+                                   scoring='roc_auc', verbose=1)
+
+        # Fit the grid search to the data
+        grid_search.fit(X, y)
+
+        # Output the best parameters and the best score
+        print("Best parameters:", grid_search.best_params_)
+        print("Best ROC AUC score:", grid_search.best_score_)
+
+        return grid_search.best_estimator_
+
+    def plot_learning_curve(self, X, y, title):
+        train_sizes, train_scores, test_scores = learning_curve(
+            LogisticRegression(solver='liblinear', random_state=42),
+            X, y, cv=StratifiedKFold(n_splits=5, shuffle=True, random_state=42),
+            scoring='roc_auc', n_jobs=-1,
+            train_sizes=np.linspace(0.1, 1.0, 10))
+
+        # Compute mean and standard deviation for training set scores
+        train_scores_mean = np.mean(train_scores, axis=1)
+        train_scores_std = np.std(train_scores, axis=1)
+
+        # Compute mean and standard deviation for test set scores
+        test_scores_mean = np.mean(test_scores, axis=1)
+        test_scores_std = np.std(test_scores, axis=1)
+
+        plt.figure()
+        plt.title(title)
+        plt.xlabel("Training examples")
+        plt.ylabel("Score")
+        plt.fill_between(train_sizes, train_scores_mean - train_scores_std,
+                         train_scores_mean + train_scores_std, alpha=0.1,
+                         color="r")
+        plt.fill_between(train_sizes, test_scores_mean - test_scores_std,
+                         test_scores_mean + test_scores_std, alpha=0.1, color="g")
+        plt.plot(train_sizes, train_scores_mean, 'o-', color="r",
+                 label="Training score")
+        plt.plot(train_sizes, test_scores_mean, 'o-', color="g",
+                 label="Cross-validation score")
+        plt.legend(loc="best")
+        plt.grid()
+
+        plt.show()
 
 
     def plot_roc_curves(self, model_results, model_name):
@@ -138,7 +216,6 @@ class LBxModel:
         plt.ylabel('Density', fontsize=16)
         plt.legend(fontsize=12)
         plt.tick_params(axis='both', which='major', labelsize=12)
-        plt.xlim(0, 1)
         plt.show()
 
         # Plot for NSCLC model
