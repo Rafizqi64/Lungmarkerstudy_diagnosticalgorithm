@@ -38,7 +38,7 @@ class LBxModel:
         #Hyperparameter tuning for LC model
         print("Tuning hyperparameters for LC model...")
         best_estimator_lc = self.tune_hyperparameters(X_lc, y)
-        self.model_lc = self.train_with_cross_validation(X_lc, y, best_estimator_lc)
+        self.model_lc = self.train_with_cross_validation(X_lc, y, best_estimator_lc, 'lc')
 
         print("Generating SHAP feature importance plot for LC model...")
         self.generate_shap_plot(X_lc, self.model_lc)
@@ -46,7 +46,7 @@ class LBxModel:
         # Hyperparameter tuning for NSCLC model
         print("Tuning hyperparameters for NSCLC model...")
         best_estimator_nsclc = self.tune_hyperparameters(X_nsclc, y)
-        self.model_nsclc = self.train_with_cross_validation(X_nsclc, y, best_estimator_nsclc)
+        self.model_nsclc = self.train_with_cross_validation(X_nsclc, y, best_estimator_nsclc, 'nsclc')
 
         print("Generating SHAP feature importance plot for NSCLC model...")
         self.generate_shap_plot(X_nsclc, self.model_nsclc)
@@ -56,7 +56,7 @@ class LBxModel:
         shap_values = explainer(X)
         shap.plots.beeswarm(shap_values)
 
-    def train_with_cross_validation(self, X, y, estimator, n_splits=5, model_type='lc'):
+    def train_with_cross_validation(self, X, y, estimator, model_type, n_splits=5):
         """
         Trains and evaluates the model using Stratified K-Fold Cross Validation.
         Stores fold results in the appropriate class attribute based on the model type.
@@ -118,8 +118,8 @@ class LBxModel:
         # Setup the grid search with cross-validation
         grid_search = GridSearchCV(log_reg, param_grid, cv=StratifiedKFold(n_splits=5, shuffle=True, random_state=42),
                                    scoring='roc_auc', verbose=1)
-
         # Fit the grid search to the data
+
         grid_search.fit(X, y)
 
         # Output the best parameters and the best score
@@ -236,27 +236,3 @@ class LBxModel:
     def get_models(self):
         print('LBx models finished training')
         return self.model_lc, self.model_nsclc
-
-    #===============#
-    # MODEL FORMULA #
-    #===============#
-
-    def get_model_formula(self, model, feature_names):
-        intercept = model.intercept_[0]
-        coefficients = model.coef_[0]
-        formula = f"log(p/(1-p)) = {intercept:.4f} "
-        formula += " ".join([f"+ {coef:.4f}*{name}" for coef, name in zip(coefficients, feature_names)])
-        return formula
-
-    def print_model_formulas(self):
-        # Ensure models are trained
-        if self.model_lc is None or self.model_nsclc is None:
-            print("Models are not trained yet.")
-            return
-
-        lc_formula = self.get_model_formula(self.model_lc, ['CYFRA 21-1', 'CEA', 'HE4'])
-        nsclc_formula = self.get_model_formula(self.model_nsclc, ['CEA', 'CYFRA 21-1', 'NSE', 'proGRP', 'HE4'])
-
-        print("LC Model Formula:\n", lc_formula)
-        print("\nNSCLC Model Formula:\n", nsclc_formula)
-

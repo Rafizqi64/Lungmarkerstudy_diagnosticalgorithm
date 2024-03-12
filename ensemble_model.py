@@ -5,9 +5,10 @@ import shap
 from sklearn.ensemble import VotingClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (RocCurveDisplay, accuracy_score, auc, f1_score,
-                             precision_score, recall_score, roc_auc_score)
+                             precision_score, recall_score, roc_auc_score,
+                             roc_curve)
 from sklearn.model_selection import (GridSearchCV, StratifiedKFold,
-                                     cross_validate)
+                                     cross_validate, learning_curve)
 
 from data_preprocessing import DataPreprocessor
 
@@ -37,9 +38,23 @@ class ensemble_model:
         X, y = self.preprocessor.load_and_transform_data()  # Assume this method is defined in DataPreprocessor
         X_ensemble = X[self.ensemble_features]
 
-        # Assuming the existence of self.parameter_grid defined correctly
-        best_estimator = self.tune_hyperparameters(X_ensemble, y)
-        self.ensemble = best_estimator
+        # Initialize container for cross-validation results including model estimators
+        self.model_results = []
+
+        cv = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=random_state)
+        for train_index, test_index in cv.split(X_ensemble, y):
+            X_train, X_test = X_ensemble.iloc[train_index], X_ensemble.iloc[test_index]
+            y_train, y_test = y.iloc[train_index], y.iloc[test_index]
+
+            self.ensemble.fit(X_train, y_train)
+            y_proba = self.ensemble.predict_proba(X_test)[:, 1]  # Probabilities for the positive class
+
+            # Store true labels and probabilities for ROC plotting
+            self.model_results.append((y_test, y_proba))
+
+        # Perform cross-validation and get average
+#         best_estimator = self.tune_hyperparameters(X_ensemble, y)
+#         self.ensemble = best_estimator
 
         # Use cross_validate for generating scores for multiple metrics
         cv_results = cross_validate(self.ensemble, X_ensemble, y, cv=StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=random_state), scoring=['accuracy', 'precision', 'recall', 'f1', 'roc_auc'], return_estimator=True)
@@ -57,8 +72,6 @@ class ensemble_model:
         best_model = cv_results['estimator'][best_estimator_index]
         self.generate_shap_plot(X_ensemble, best_model)
 
-        # Print the average scores
-        print(f"CV Results: {self.cv_results}")
 
     def tune_hyperparameters(self, X, y):
         param_grid = {
@@ -75,12 +88,86 @@ class ensemble_model:
         shap_values = explainer(X)
         shap.plots.beeswarm(shap_values, max_display=30)
 
+    def plot_learning_curve(self, X, y, title='Learning Curve'):
+        train_sizes, train_scores, test_scores = learning_curve(
+            self.ensemble, X, y, cv=StratifiedKFold(n_splits=5, shuffle=True, random_state=42),
+            scoring='roc_auc', n_jobs=-1, train_sizes=np.linspace(0.1, 1.0, 10))
+
+        train_scores_mean = np.mean(train_scores, axis=1)
+        train_scores_std = np.std(train_scores, axis=1)
+        test_scores_mean = np.mean(test_scores, axis=1)
+        test_scores_std = np.std(test_scores, axis=1)
+
+        plt.figure()
+        plt.title(title)
+        plt.xlabel("Training examples")
+        plt.ylabel("Score")
+        plt.fill_between(train_sizes, train_scores_mean - train_scores_std,
+                         train_scores_mean + train_scores_std, alpha=0.1,
+                         color="r")
+        plt.fill_between(train_sizes, test_scores_mean - test_scores_std,
+                         test_scores_mean + test_scores_std, alpha=0.1, color="g")
+        plt.plot(train_sizes, train_scores_mean, 'o-', color="r",
+                 label="Training score")
+        plt.plot(train_sizes, test_scores_mean, 'o-', color="g",
+                 label="Cross-validation score")
+        plt.legend(loc="best")
+        plt.grid()
+        plt.show()
+
+    def plot_roc_curves(self, model_results, model_name='Ensemble Model'):
+        mean_fpr = np.linspace(0, 1, 100)
+        tprs = []
+        aucs = []
+
+        fig, ax = plt.subplots()
+        for i, (y_test, proba) in enumerate(model_results):
+            fpr, tpr, _ = roc_curve(y_test, proba)
+            roc_auc = auc(fpr, tpr)
+            aucs.append(roc_auc)
+            ax.plot(fpr, tpr, lw=1, alpha=0.3,
+                    label='Fold %d ROC (AUC = %0.2f)' % (i, roc_auc))
+
+            interp_tpr = np.interp(mean_fpr, fpr, tpr)
+            interp_tpr[0] = 0.0
+            tprs.append(interp_tpr)
+
+        mean_tpr = np.mean(tprs, axis=0)
+        mean_tpr[-1] = 1.0
+        mean_auc = auc(mean_fpr, mean_tpr)
+        std_auc = np.std(aucs)
+        ax.plot(mean_fpr, mean_tpr, color='b',
+                label=r'Mean ROC (AUC = %0.2f $\pm$ %0.2f)' % (mean_auc, std_auc),
+                lw=2, alpha=.8)
+
+        ax.set(xlim=[-0.05, 1.05], ylim=[-0.05, 1.05],
+               title="ROC Curve for {}".format(model_name))
+        ax.legend(loc="lower right")
+        plt.show()
+
+    def plot_prediction_histograms(self, predictions, true_labels, title='Probability Distribution', positive_label='Positives', negative_label='Negatives'):
+        sns.set(style="whitegrid")
+        plt.figure(figsize=(10, 6))
+
+        positive_predictions = predictions[true_labels == 1]
+        negative_predictions = predictions[true_labels == 0]
+
+        sns.histplot(negative_predictions, bins=20, kde=True, label=negative_label, color='blue', alpha=0.5)
+        sns.histplot(positive_predictions, bins=20, kde=True, label=positive_label, color='red', alpha=0.7)
+
+        plt.title(title)
+        plt.xlabel('Probability of being Positive Class')
+        plt.ylabel('Density')
+        plt.legend()
+        plt.show()
+
+
 class score_based_ensemble:
     def __init__(self, filepath, target, binary_map):
         self.model = LogisticRegression(solver='liblinear')
         self.cv_scores = {}
         self.preprocessor = DataPreprocessor(filepath, target, binary_map)
-        self.score_ensemble_features = ['Brock score (%)', 'Herder score (%)', '% LC in TM-model', '% NSCLC in TM-model']
+        self.score_ensemble_features = ['remainder__Brock score (%)', 'remainder__Herder score (%)', 'remainder__% LC in TM-model', 'remainder__% NSCLC in TM-model']
 
     def fit_evaluate(self, n_splits=5, random_state=42, scoring=None):
 

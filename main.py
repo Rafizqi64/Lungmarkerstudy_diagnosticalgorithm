@@ -1,54 +1,121 @@
 import pandas as pd
 
-from brock_and_herder import BrockAndHerderModel
 from ensemble_model import ensemble_model, score_based_ensemble
-from lbx_model import LBxModel
+# from brock_and_herder import BrockAndHerderModel
+from model import Model
+
+# from lbx_model import LBxModel
 
 df = pd.read_excel('Dataset BEP Rafi.xlsx')
 filepath='Dataset BEP Rafi.xlsx'
 target='Diagnose'
 binary_map={'Nee': 0, 'Ja': 1}
+# Initialize the Model class
+model_manager = Model(filepath, target, binary_map)
 
-# Initialize Brock and Herder models directly with their respective features and the dataset
-print(10*'='+"Brock and Herder"+10*"=")
-brock_herder_model = BrockAndHerderModel(filepath, target, binary_map)
-brock_herder_model.train_models()
-model_brock, model_herder = brock_herder_model.get_models()
+# Define the feature sets for each model
+features_brock = [
+            'cat__Nodule Type_GroundGlass',
+            'cat__Nodule Type_PartSolid',
+            'cat__Nodule Type_Solid',
+            'remainder__Family History of LC',
+            'remainder__Current/Former smoker',
+            'remainder__Emphysema',
+            'remainder__Nodule size (1-30 mm)',
+            'remainder__Nodule Upper Lobe',
+            'remainder__Nodule Count',
+            'remainder__Spiculation',
+        ]
 
-print(10*'='+"LC and NSCLC"+10*"=")
-lbx_model = LBxModel(filepath, target, binary_map)
-lbx_model.train_models()
+features_herder = [
+            'cat__PET-CT Findings_Faint',
+            'cat__PET-CT Findings_Intense',
+            'cat__PET-CT Findings_Moderate',
+            'cat__PET-CT Findings_No FDG avidity',
+            'remainder__Family History of LC',
+            'remainder__Previous History of Extra-thoracic Cancer',
+            'remainder__Emphysema',
+            'remainder__Nodule size (1-30 mm)',
+            'remainder__Nodule Upper Lobe',
+            'remainder__Nodule Count',
+            'remainder__Spiculation',
+        ]
 
-# Retrieve the trained models
-model_lc, model_nsclc = lbx_model.get_models()
 
-# Create and use the Ensemble Model
-models = [
-    ('brock', model_brock),
-    ('herder', model_herder),
-    ('nsclc', model_nsclc),
-]
+features_lc = [
+            'remainder__CEA',
+            'remainder__CYFRA 21-1',
+        ]
+
+
+features_nsclc = [
+            'remainder__CEA',
+            'remainder__CYFRA 21-1',
+            'remainder__NSE',
+            'remainder__proGRP'
+        ]
+
+
+# Add models to the manager
+model_manager.add_model("brock", features_brock)
+model_manager.add_model("herder", features_herder)
+model_manager.add_model("lc", features_lc)
+model_manager.add_model("nsclc", features_nsclc)
+
+# Assuming 'trainer' is an instance of the class containing the 'train_models' method
+trained_models = model_manager.train_models()
+
+# ROC Curve# s
+# model_manager.plot_roc_curves('brock')
+# model_manager.plot_roc_curves('herder')
+# model_manager.plot_roc_curves('lc')
+# model_manager.plot_roc_curves('nsclc')
+
+# Learning Curves
+
+model_manager.generate_learning_curve('brock')
+model_manager.generate_learning_curve('herder')
+model_manager.generate_learning_curve('lc')
+model_manager.generate_learning_curve('nsclc')
+
+# SHAP Plots
+# model_manager.generate_shap_plot('brock', features_brock)
+# model_manager.generate_shap_plot('herder', features_herder)
+# model_manager.generate_shap_plot('lc', features_lc)
+# model_manager.generate_shap_plot('nsclc', features_nsclc)
+
+# Prediction histograms
+# model_manager.plot_prediction_histograms('brock')
+# model_manager.plot_prediction_histograms('herder')
+# model_manager.plot_prediction_histograms('lc')
+# model_manager.plot_prediction_histograms('nsclc')
+
+# # Extract models for the ensemble
+# models = [
+    # ('brock', trained_models['brock']),
+    # ('herder', trained_models['herder']),
+    # ('nsclc', trained_models['nsclc']),
+# ]
+
 
 # print(10*'='+"Score Based Ensemble"+10*"=")
 # scored_evaluator = score_based_ensemble(filepath, target, binary_map)
 # scored_evaluator.fit_evaluate()
 # scored_evaluator.print_scores()
 
-print(10*'='+"Voting Classifier Ensemble"+10*"=")
-evaluator = ensemble_model(models, filepath, target, binary_map)
-evaluator.fit_best_model()
+# print(10*'='+"Voting Classifier Ensemble"+10*"=")
+# evaluator = ensemble_model(models, filepath, target, binary_map)
+# evaluator.fit_best_model()
 
-#Plot learning curves
-#Plot probalilities
-# lbx_model.plot_prediction_histograms()
-# brock_herder_model.plot_prediction_histograms()
-#evaluator.plot_prediction_histogram()
+# # #Plot learning curves
+# # #Plot probalilities
+# # evaluator.plot_prediction_histograms()
 # scored_evaluator.plot_prediction_histogram()
 
-#Plot Mean ROC Curve
+# #Plot Mean ROC Curve
 # lbx_model.plot_roc_curves(lbx_model.lc_results, 'LC')
 # lbx_model.plot_roc_curves(lbx_model.nsclc_results, 'NSCLC')
 # brock_herder_model.plot_roc_curves(brock_herder_model.brock_results, 'Brock')
 # brock_herder_model.plot_roc_curves(brock_herder_model.herder_results, 'Herder')
-# evaluator.plot_roc_curve()
+# evaluator.plot_roc_curves(ensemble_model.ensemble_results)
 # scored_evaluator.plot_roc_curve()
