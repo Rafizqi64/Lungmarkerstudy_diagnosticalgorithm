@@ -25,6 +25,11 @@ class Model:
             "estimator": LogisticRegression(solver='liblinear', random_state=42)
         }
 
+    def reset_models(self):
+        """Clears the models dictionary to remove old models and their results."""
+        print("Resetting models...")
+        self.models = {}
+
     def train_models(self):
         X, y = self.preprocessor.load_and_transform_data()
         trained_models = {}
@@ -148,6 +153,7 @@ class Model:
 
         ax.set(xlabel='False Positive Rate', ylabel='True Positive Rate', title=f'ROC Curve for {model_name}')
         ax.legend(loc='lower right')
+        plt.plot([0, 1], [0, 1], linestyle='--', lw=2, color='r', label='Chance', alpha=0.8)
         plt.show()
 
     def generate_shap_plot(self, model_name, features):
@@ -164,43 +170,46 @@ class Model:
 
         explainer = shap.Explainer(model.predict, X_selected)
         shap_values = explainer(X_selected)
-        shap.plots.beeswarm(shap_values)
+        shap.plots.beeswarm(shap_values, show=False)
 
-    def generate_learning_curve(self, model_name, title="Learning Curve"):
-        model_info = self.models.get(model_name)
-        if model_info is None:
-            print(f"Model '{model_name}' not found.")
-            return
-
-        X, y = self.preprocessor.load_and_transform_data()
-        estimator = clone(model_info['estimator'])
-
-        train_sizes, train_scores, test_scores = learning_curve(
-            estimator, X, y, cv=StratifiedKFold(n_splits=5, shuffle=True, random_state=42),
-            n_jobs=-1, train_sizes=np.linspace(.1, 1.0, 5), scoring='roc_auc'
-        )
-
-        train_scores_mean = np.mean(train_scores, axis=1)
-        train_scores_std = np.std(train_scores, axis=1)
-        test_scores_mean = np.mean(test_scores, axis=1)
-        test_scores_std = np.std(test_scores, axis=1)
-
-        plt.figure()
-        plt.title(title)
-        plt.xlabel("Training examples")
-        plt.ylabel("Score")
-        plt.fill_between(train_sizes, train_scores_mean - train_scores_std,
-                         train_scores_mean + train_scores_std, alpha=0.1,
-                         color="r")
-        plt.fill_between(train_sizes, test_scores_mean - test_scores_std,
-                         test_scores_mean + test_scores_std, alpha=0.1, color="g")
-        plt.plot(train_sizes, train_scores_mean, 'o-', color="r",
-                 label="Training score")
-        plt.plot(train_sizes, test_scores_mean, 'o-', color="g",
-                 label="Cross-validation score")
-
-        plt.legend(loc="best")
+        plt.title(f"{model_name} SHAP Beeswarm Plot", fontsize=20)
         plt.show()
+
+    # def generate_learning_curve(self, model_name, title="Learning Curve"):
+        # model_info = self.models.get(model_name)
+        # if model_info is None:
+            # print(f"Model '{model_name}' not found.")
+            # return
+
+        # X, y = self.preprocessor.load_and_transform_data()
+        # estimator = clone(model_info['estimator'])
+
+        # train_sizes, train_scores, test_scores = learning_curve(
+            # estimator, X, y, cv=StratifiedKFold(n_splits=5, shuffle=True, random_state=42),
+            # n_jobs=-1, train_sizes=np.linspace(.1, 1.0, 5), scoring='roc_auc'
+        # )
+
+        # train_scores_mean = np.mean(train_scores, axis=1)
+        # train_scores_std = np.std(train_scores, axis=1)
+        # test_scores_mean = np.mean(test_scores, axis=1)
+        # test_scores_std = np.std(test_scores, axis=1)
+
+        # plt.figure()
+        # plt.title(title)
+        # plt.xlabel("Training examples")
+        # plt.ylabel("Score")
+        # plt.fill_between(train_sizes, train_scores_mean - train_scores_std,
+                         # train_scores_mean + train_scores_std, alpha=0.1,
+                         # color="r")
+        # plt.fill_between(train_sizes, test_scores_mean - test_scores_std,
+                         # test_scores_mean + test_scores_std, alpha=0.1, color="g")
+        # plt.plot(train_sizes, train_scores_mean, 'o-', color="r",
+                 # label="Training score")
+        # plt.plot(train_sizes, test_scores_mean, 'o-', color="g",
+                 # label="Cross-validation score")
+
+        # plt.legend(loc="best")
+        # plt.show()
 
     def plot_prediction_histograms(self, model_name):
         if model_name not in self.models:

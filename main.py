@@ -1,10 +1,8 @@
 import pandas as pd
+from sklearn.model_selection import StratifiedKFold, train_test_split
 
-from ensemble_model import ensemble_model, score_based_ensemble
-# from brock_and_herder import BrockAndHerderModel
+from ensemble_model import VotingModel, score_based_ensemble
 from model import Model
-
-# from lbx_model import LBxModel
 
 df = pd.read_excel('Dataset BEP Rafi.xlsx')
 filepath='Dataset BEP Rafi.xlsx'
@@ -54,68 +52,48 @@ features_nsclc = [
             'remainder__NSE',
             'remainder__proGRP'
         ]
+features_ensemble = list(set(features_brock + features_herder + features_nsclc + features_lc))
 
+# Clear previously stored models and their results
+model_manager.reset_models()
 
-# Add models to the manager
+# Add models to the manage# r
 model_manager.add_model("brock", features_brock)
 model_manager.add_model("herder", features_herder)
 model_manager.add_model("lc", features_lc)
 model_manager.add_model("nsclc", features_nsclc)
 
-# Assuming 'trainer' is an instance of the class containing the 'train_models' method
+# Train models and prepare the voting ensemble
 trained_models = model_manager.train_models()
+voting_model = VotingModel(trained_models, features_ensemble, filepath, target, binary_map)
 
-# ROC Curve# s
-# model_manager.plot_roc_curves('brock')
-# model_manager.plot_roc_curves('herder')
-# model_manager.plot_roc_curves('lc')
-# model_manager.plot_roc_curves('nsclc')
+score_model = score_based_ensemble(filepath, target, binary_map)
+score_model.fit_evaluate()
+score_model.print_scores()
 
-# Learning Curves
+# Reset any previous state in the voting model and train the voting classifier
+voting_model.reset()
+voting_model.train_voting_classifier()
 
-model_manager.generate_learning_curve('brock')
-model_manager.generate_learning_curve('herder')
-model_manager.generate_learning_curve('lc')
-model_manager.generate_learning_curve('nsclc')
+model_manager.plot_roc_curves('brock')
+model_manager.generate_shap_plot('brock', features_brock)
+model_manager.plot_prediction_histograms('brock')
 
-# SHAP Plots
-# model_manager.generate_shap_plot('brock', features_brock)
-# model_manager.generate_shap_plot('herder', features_herder)
-# model_manager.generate_shap_plot('lc', features_lc)
-# model_manager.generate_shap_plot('nsclc', features_nsclc)
+model_manager.plot_roc_curves('herder')
+model_manager.generate_shap_plot('herder', features_herder)
+model_manager.plot_prediction_histograms('herder')
 
-# Prediction histograms
-# model_manager.plot_prediction_histograms('brock')
-# model_manager.plot_prediction_histograms('herder')
-# model_manager.plot_prediction_histograms('lc')
-# model_manager.plot_prediction_histograms('nsclc')
+model_manager.plot_roc_curves('lc')
+model_manager.generate_shap_plot('lc', features_lc)
+model_manager.plot_prediction_histograms('lc')
 
-# # Extract models for the ensemble
-# models = [
-    # ('brock', trained_models['brock']),
-    # ('herder', trained_models['herder']),
-    # ('nsclc', trained_models['nsclc']),
-# ]
+model_manager.plot_roc_curves('nsclc')
+model_manager.generate_shap_plot('nsclc', features_nsclc)
+model_manager.plot_prediction_histograms('nsclc')
 
+voting_model.plot_roc_curves()
+voting_model.generate_shap_plot()
+voting_model.plot_prediction_histograms()
 
-# print(10*'='+"Score Based Ensemble"+10*"=")
-# scored_evaluator = score_based_ensemble(filepath, target, binary_map)
-# scored_evaluator.fit_evaluate()
-# scored_evaluator.print_scores()
-
-# print(10*'='+"Voting Classifier Ensemble"+10*"=")
-# evaluator = ensemble_model(models, filepath, target, binary_map)
-# evaluator.fit_best_model()
-
-# # #Plot learning curves
-# # #Plot probalilities
-# # evaluator.plot_prediction_histograms()
-# scored_evaluator.plot_prediction_histogram()
-
-# #Plot Mean ROC Curve
-# lbx_model.plot_roc_curves(lbx_model.lc_results, 'LC')
-# lbx_model.plot_roc_curves(lbx_model.nsclc_results, 'NSCLC')
-# brock_herder_model.plot_roc_curves(brock_herder_model.brock_results, 'Brock')
-# brock_herder_model.plot_roc_curves(brock_herder_model.herder_results, 'Herder')
-# evaluator.plot_roc_curves(ensemble_model.ensemble_results)
-# scored_evaluator.plot_roc_curve()
+score_model.plot_roc_curve()
+score_model.plot_prediction_histogram()
