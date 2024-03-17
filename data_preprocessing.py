@@ -41,6 +41,12 @@ class DataPreprocessor:
         # Apply standard scaling to the numerical features
         self.df[numerical_features] = scaler.fit_transform(self.df[numerical_features])
 
+        # Apply Brock model transformations for Nodule size and count
+        if 'Nodule size' in self.df.columns:
+            self.df['Nodule size'] = (self.df['Nodule size'] / 10) - 0.5 - 1.58113883
+        if 'Nodule count' in self.df.columns:
+            self.df['Nodule count'] = self.df['Nodule count'] - 4
+
         # preprocess dataset
         self.preprocessor = ColumnTransformer(transformers=[
             ('cat', OneHotEncoder(handle_unknown='ignore'), categorical_features)
@@ -57,25 +63,3 @@ class DataPreprocessor:
         # Convert the processed array back to a DataFrame with new feature names
         self.X = pd.DataFrame(X_transformed, columns=self.feature_names)
         return self.X, self.y
-
-    def get_feature_indices(self, features):
-        # Get names of transformed features
-        transformed_features = self.preprocessor.get_feature_names_out()
-        # Initialize a list to hold indices for the specified features
-        feature_indices_flat = []
-
-        # Iterate over each specified feature
-        for feature in features:
-            if feature in self.df.select_dtypes(include=['object']).columns:
-                # Feature is categorical and has been one-hot encoded
-                encoded_features_indices = [i for i, f in enumerate(transformed_features) if f.startswith(f"cat__{feature}")]
-                feature_indices_flat.extend(encoded_features_indices)
-            else:
-                # For numerical or binary features, find their transformed index
-                # Assume numerical/binary features are tagged with 'remainder__' in transformed features
-                for transformed_feature in transformed_features:
-                    if transformed_feature.endswith(f'__{feature}'):
-                        index = list(transformed_features).index(transformed_feature)
-                        feature_indices_flat.append(index)
-                        break  # Assume each feature is unique and stop after finding the first match
-        return feature_indices_flat

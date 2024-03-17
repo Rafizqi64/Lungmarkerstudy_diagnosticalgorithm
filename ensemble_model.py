@@ -15,7 +15,7 @@ from data_preprocessing import DataPreprocessor
 
 
 class VotingModel:
-    def __init__(self, trained_models, ensemble_features, filepath, target, binary_map):
+    def __init__(self, trained_models, ensemble_features, filepath, target, binary_map, model_name):
         self.data_preprocessor = DataPreprocessor(filepath, target, binary_map)
         self.trained_models = trained_models
         self.ensemble_features = ensemble_features
@@ -24,6 +24,7 @@ class VotingModel:
         self.X = None
         self.y = None
         self.load_data()
+        self.model_name = model_name
 
     def reset(self):
         self.voting_classifier = None
@@ -78,7 +79,7 @@ class VotingModel:
             "F1": np.mean(f1_scores),
             "ROC AUC": np.mean(roc_aucs),
         }
-        print('Metrics for ensemble Model')
+        print(f'Metrics for {self.model_name} Model')
         print(metrics)
 
     def plot_roc_curves(self):
@@ -116,7 +117,7 @@ class VotingModel:
         plt.ylim([0.0, 1.05])
         plt.xlabel('False Positive Rate')
         plt.ylabel('True Positive Rate')
-        plt.title('Mean ROC Curve')
+        plt.title(f'Mean ROC Curve {self.model_name} model')
         plt.legend(loc="lower right")
         plt.show()
 
@@ -131,6 +132,7 @@ class VotingModel:
         shap_values = explainer(self.X)
 
         # Plotting
+        shap.plots.bar(shap_values, max_display=30)
         shap.plots.beeswarm(shap_values, max_display=30, show=False)
         plt.title("Ensemble model SHAP Beeswarm Plot", fontsize=20)
         plt.show()
@@ -156,11 +158,12 @@ class VotingModel:
         plt.show()
 
 class score_based_ensemble:
-    def __init__(self, filepath, target, binary_map):
+    def __init__(self, filepath, target, binary_map, features, model_name):
         self.model = LogisticRegression(solver='liblinear')
         self.cv_scores = {}
         self.preprocessor = DataPreprocessor(filepath, target, binary_map)
-        self.score_ensemble_features = ['remainder__Brock score (%)', 'remainder__Herder score (%)', 'remainder__% LC in TM-model', 'remainder__% NSCLC in TM-model']
+        self.score_ensemble_features = features
+        self.model_name = model_name
 
     def fit_evaluate(self, n_splits=5, random_state=42, scoring=None):
 
@@ -179,6 +182,7 @@ class score_based_ensemble:
         for metric, score_name in scoring.items():
             metric_key = 'test_' + score_name
             self.cv_scores[metric] = np.mean(cv_results[metric_key])
+
     def plot_roc_curve(self, n_splits=5, random_state=42):
         X, y = self.preprocessor.load_and_transform_data()
 
@@ -235,7 +239,7 @@ class score_based_ensemble:
         ax.set(
             xlabel="False Positive Rate",
             ylabel="True Positive Rate",
-            title="ROC Curve across CV folds for Score Based Ensemble model",
+            title=f"ROC Curve across CV folds for {self.model_name} model",
         )
         ax.legend(loc="lower right")
         plt.plot([0, 1], [0, 1], linestyle='--', lw=2, color='r', label='Chance', alpha=0.8)
@@ -262,7 +266,7 @@ class score_based_ensemble:
         # Use probabilities and actual labels (y) to plot the histograms
         sns.histplot(probabilities[y == 0], bins=20, kde=True, label='Negatives', color='blue', alpha=0.5)
         sns.histplot(probabilities[y == 1], bins=20, kde=True, label='Positives', alpha=0.7, color='red')
-        plt.title('Probability Distribution for Score Based Ensemble Model', fontsize=20)
+        plt.title(f'Probability Distribution for {self.model_name} Model', fontsize=20)
         plt.xlabel('Probability of being Positive Class', fontsize=16)
         plt.ylabel('Density', fontsize=16)
         plt.legend(fontsize=12)
@@ -272,7 +276,7 @@ class score_based_ensemble:
 
     def print_scores(self):
         best_roc_auc_score = self.cv_scores['roc_auc']
-        print(f"Best Average ROC AUC Score: {best_roc_auc_score:.3f}")
+        print(f"\nTraining {self.model_name} model...")
         for metric, score in self.cv_scores.items():
             print(f"{metric.capitalize()}: {score:.3f}")
 

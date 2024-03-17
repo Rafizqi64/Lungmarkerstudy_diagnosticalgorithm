@@ -1,0 +1,163 @@
+import numpy as np
+from sklearn.base import BaseEstimator, ClassifierMixin
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import (accuracy_score, f1_score, precision_score,
+                             recall_score, roc_auc_score, roc_curve)
+from sklearn.model_selection import StratifiedKFold
+
+
+class HerderModel(BaseEstimator, ClassifierMixin):
+    def __init__(self, preprocessor, n_splits=5):
+        self.preprocessor = preprocessor
+        self.n_splits = n_splits
+        self.mcp_model = LogisticRegression(solver='liblinear')
+        self.herder_model = LogisticRegression(solver='liblinear')
+        self.is_fitted = False
+        self.mcp_features = [
+            'remainder__Current/Former smoker',
+            'remainder__Previous History of Extra-thoracic Cancer',
+            'remainder__Nodule size (1-30 mm)',
+            'remainder__Nodule Upper Lobe',
+            'remainder__Spiculation',
+            ]
+
+        self.herder_features = [
+            'cat__PET-CT Findings_Faint',
+            'cat__PET-CT Findings_Intense',
+            'cat__PET-CT Findings_Moderate',
+            ]
+        self.model_metrics = {}
+
+    def fit(self, X, y):
+        skf = StratifiedKFold(n_splits=self.n_splits, shuffle=True, random_state=42)
+        fold_metrics = []
+
+        for train_index, test_index in skf.split(X, y):
+            X_train, X_test = X.iloc[train_index], X.iloc[test_index]
+            y_train, y_test = y[train_index], y[test_index]
+
+            # Fit the MCP model
+            self.mcp_model.fit(X_train[self.mcp_features], y_train)
+            # Get MCP predictions for the Herder model input
+            mcp_predictions_train = self.mcp_model.predict_proba(X_train[self.mcp_features])[:, 1]
+
+            # Prepare Herder model training data
+            X_train_herder = X_train[self.herder_features].copy()
+            X_train_herder['MCP_Output'] = mcp_predictions_train
+            self.herder_model.fit(X_train_herder, y_train)
+
+            # Collect metrics for the current fold
+            fold_metric = self._evaluate_fold(X_train_herder, X_test, y_train, y_test)
+            fold_metrics.append(fold_metric)
+
+        # Calculate and store aggregated metrics across all folds
+        self.calculate_and_store_metrics("HerderModel", fold_metrics)
+        self.is_fitted = True
+        return self
+
+    def predict_proba(self, X):
+        if not self.is_fitted:
+            raise RuntimeError("The model is not fitted yet.")
+
+
+        mcp_predictions = self.mcp_model.predict_proba(X[self.mcp_features])[:, 1]
+
+        X_herder = X[self.herder_features].copy()
+        X_herder['MCP_Output'] = mcp_predictions
+
+        return self.herder_model.predict_proba(X_herder)
+
+    def _evaluate_fold(self, X_train, X_test, y_train, y_test):
+        # Predictions for training data
+        y_train_pred = self.herder_model.predict(X_train)
+        y_train_proba = self.herder_model.predict_proba(X_train)[:, 1]
+        train_fpr, train_tpr, _ = roc_curve(y_train, y_train_proba)
+        train_roc_auc = roc_auc_score(y_train, y_train_proba)
+
+        # Predictions for test data
+        mcp_predictions_test = self.mcp_model.predict_proba(X_test[self.mcp_features])[:, 1]
+        X_test_herder = X_test[self.herder_features].copy()
+        X_test_herder['MCP_Output'] = mcp_predictions_test
+        y_test_pred = self.herder_model.predict(X_test_herder)
+        y_test_proba = self.herder_model.predict_proba(X_test_herder)[:, 1]
+        val_fpr, val_tpr, _ = roc_curve(y_test, y_test_proba)
+        val_roc_auc = roc_auc_score(y_test, y_test_proba)
+
+        return (y_train, y_train_pred, y_train_proba, y_test, y_test_pred, y_test_proba,
+                train_fpr, train_tpr, train_roc_auc, val_fpr, val_tpr, val_roc_auc)
+
+    def calculate_and_store_metrics(self, model_name, fold_metrics):
+        # Initialization
+        accuracies, precisions, recalls, f1_scores, train_roc_aucs, val_roc_aucs = [], [], [], [], [], []
+
+        # ROC data initialization
+        roc_data = {'train': {'fpr': [], 'tpr': [], 'roc_auc': []},
+                    'validation': {'fpr': [], 'tpr': [], 'roc_auc': []}}
+
+        for metrics in fold_metrics:
+            y_train, y_train_pred, y_train_proba, y_test, y_test_pred, y_test_proba, \
+            train_fpr, train_tpr, train_roc_auc, val_fpr, val_tpr, val_roc_auc = metrics
+
+            accuracies.append(accuracy_score(y_test, y_test_pred))
+            precisions.append(precision_score(y_test, y_test_pred))
+            recalls.append(recall_score(y_test, y_test_pred))
+            f1_scores.append(f1_score(y_test, y_test_pred))
+            train_roc_aucs.append(train_roc_auc)
+            val_roc_aucs.append(val_roc_auc)
+
+            roc_data['train']['fpr'].append(train_fpr)
+            roc_data['train']['tpr'].append(train_tpr)
+            roc_data['train']['roc_auc'].append(train_roc_auc)
+            roc_data['validation']['fpr'].append(val_fpr)
+            roc_data['validation']['tpr'].append(val_tpr)
+            roc_data['validation']['roc_auc'].append(val_roc_auc)
+
+        # Calculate mean and standard deviation for metrics
+        mean_metrics = {
+            "Accuracy": np.mean(accuracies),
+            "Precision": np.mean(precisions),
+            "Recall": np.mean(recalls),
+            "F1": np.mean(f1_scores),
+            "Train ROC AUC": np.mean(train_roc_aucs),
+            "Validation ROC AUC": np.mean(val_roc_aucs),
+        }
+        std_metrics = {
+            "Train ROC AUC STD": np.std(train_roc_aucs),
+            "Validation ROC AUC STD": np.std(val_roc_aucs),
+        }
+
+        # Print and store metrics
+#         print(f"Metrics for {model_name} Model:")
+        # for metric, value in mean_metrics.items():
+            # print(f"{metric}: {value:.4f}")
+        # for metric, value in std_metrics.items():
+            # print(f"{metric}: {value:.4f}")
+
+        self.model_metrics[model_name] = {
+            'metrics': mean_metrics,
+            'metrics_std': std_metrics,
+            'roc_data': roc_data,
+        }
+
+    def print_model_formulae(self):
+        if not self.is_fitted:
+            raise RuntimeError("The model is not fitted yet. Please fit the model before obtaining the formulae.")
+
+        # Function to format the logistic regression formula as a string
+        def format_formula(feature_names, coefficients, intercept):
+            terms = [f"{coeff:.4f}*{name}" for name, coeff in zip(feature_names, coefficients)]
+            formula = " + ".join(terms)
+            return f"logit(P(y=1)) = {intercept:.4f} + {formula}"
+
+        # MCP Model Formula
+        mcp_formula = format_formula(self.mcp_features, self.mcp_model.coef_[0], self.mcp_model.intercept_[0])
+        print("MCP Model Formula:")
+        print(mcp_formula)
+        print()  # For spacing
+
+        # Herder Model Formula
+        # Note: We add 'MCP_Output' to the herder_features for formula generation
+        herder_features_with_mcp = self.herder_features + ['MCP_Output']
+        herder_formula = format_formula(herder_features_with_mcp, self.herder_model.coef_[0], self.herder_model.intercept_[0])
+        print("Herder Model Formula:")
+        print(herder_formula)
