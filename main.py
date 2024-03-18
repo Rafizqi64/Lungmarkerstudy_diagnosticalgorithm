@@ -61,7 +61,7 @@ features_lbx = [
             'remainder__SCCA'
         ]
 
-features_score = [
+features_ensemble_output = [
             'remainder__Brock score (%)',
             'remainder__Herder score (%)',
             'remainder__% LC in TM-model',
@@ -88,10 +88,10 @@ model_manager.add_model("lbx", features_lbx)
 
 # Train models and prepare the voting ensemble
 model_manager.apply_rfe_feature_selection("brock")
-model_manager.apply_rfe_feature_selection("herder")
+# model_manager.apply_rfe_feature_selection("herder")
 model_manager.apply_rfe_feature_selection("lbx")
-trained_models = model_manager.train_models()
 features_ensemble = model_manager.get_updated_ensemble_features()
+trained_models = model_manager.train_models()
 
 
 #===========================#
@@ -127,14 +127,14 @@ features_ensemble = model_manager.get_updated_ensemble_features()
 #       FULL ENSEMBLE       #
 #===========================#
 
-voting_model = VotingModel(trained_models, features_ensemble, filepath, target, binary_map, 'ensemble')
+voting_model = VotingModel(trained_models, features_ensemble, filepath, target, binary_map, 'ENSEMBLE INPUT')
 voting_model.reset()
 voting_model.train_voting_classifier()
 # voting_model.plot_roc_curves()
-# voting_model.generate_shap_plot()
+voting_model.generate_shap_plot()
 # voting_model.plot_prediction_histograms()
 
-score_model = score_based_ensemble(filepath, target, binary_map, features_score, "score based ensemble")
+score_model = score_based_ensemble(filepath, target, binary_map, features_ensemble_output, "ENSEMBLE OUTPUT")
 score_model.fit_evaluate()
 score_model.print_scores()
 # score_model.plot_roc_curve()
@@ -145,14 +145,14 @@ score_model.print_scores()
 # BROCK AND HERDER ENSEMBLE #
 #===========================#
 
-voting_model = VotingModel(trained_models, features_brock_and_herder, filepath, target, binary_map, 'Brock and Herder input')
+voting_model = VotingModel(trained_models, features_brock_and_herder, filepath, target, binary_map, 'BROCK AND HERDER INPUT')
 voting_model.reset()
 voting_model.train_voting_classifier()
 # voting_model.plot_roc_curves()
 # voting_model.generate_shap_plot()
 # voting_model.plot_prediction_histograms()
 
-score_model = score_based_ensemble(filepath, target, binary_map, features_BH_output, "Brock and Herder output")
+score_model = score_based_ensemble(filepath, target, binary_map, features_BH_output, "BROCK AND HERDER OUTPUT")
 score_model.fit_evaluate()
 score_model.print_scores()
 # score_model.plot_roc_curve()

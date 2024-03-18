@@ -1,5 +1,6 @@
 import numpy as np
 from sklearn.base import BaseEstimator, ClassifierMixin
+from sklearn.feature_selection import RFECV
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (accuracy_score, f1_score, precision_score,
                              recall_score, roc_auc_score, roc_curve)
@@ -15,8 +16,8 @@ class HerderModel(BaseEstimator, ClassifierMixin):
         self.is_fitted = False
         self.mcp_features = [
             'remainder__Current/Former smoker',
-            'remainder__Previous History of Extra-thoracic Cancer',
-            'remainder__Nodule size (1-30 mm)',
+            # 'remainder__Previous History of Extra-thoracic Cancer',
+            # 'remainder__Nodule size (1-30 mm)',
             'remainder__Nodule Upper Lobe',
             'remainder__Spiculation',
             ]
@@ -27,6 +28,31 @@ class HerderModel(BaseEstimator, ClassifierMixin):
             'cat__PET-CT Findings_Moderate',
             ]
         self.model_metrics = {}
+
+    def select_features(self, X, y):
+        """
+        Applies RFECV for feature selection on both MCP and Herder feature sets.
+        Updates the feature sets based on the selection results.
+        """
+
+        # Define cross-validation strategy
+        cv_strategy = StratifiedKFold(n_splits=self.n_splits, shuffle=True, random_state=42)
+
+        # Apply RFECV to MCP features
+        mcp_rfecv = RFECV(estimator=LogisticRegression(solver='liblinear', random_state=42),
+                          step=1,
+                          cv=cv_strategy,
+                          scoring='roc_auc')
+        mcp_X = X[self.mcp_features]
+        mcp_rfecv.fit(mcp_X, y)
+        # Update mcp_features based on the selection
+        self.mcp_features = list(mcp_X.columns[mcp_rfecv.support_])
+
+        print("Updated MCP features:", self.mcp_features)
+
+    def get_all_selected_features(self):
+        # Combine MCP and Herder features
+        return self.mcp_features + self.herder_features
 
     def fit(self, X, y):
         skf = StratifiedKFold(n_splits=self.n_splits, shuffle=True, random_state=42)
@@ -70,7 +96,7 @@ class HerderModel(BaseEstimator, ClassifierMixin):
     def predict(self, X):
         # Check if the model is fitted
         if not self.is_fitted:
-            raise RuntimeError("You must train classifer before predicting data!")
+            raise RuntimeError("You must train classifier before predicting data!")
 
         # Generate predictions using the logic based on predict_proba
         probas = self.predict_proba(X)

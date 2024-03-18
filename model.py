@@ -208,39 +208,30 @@ class Model:
         # Load and transform data
         X, y = self.preprocessor.load_and_transform_data()
 
-        # Ensure only selected features are used
-        X_selected = X[self.models[model_name]["features"]]
-
-        # Initialize the base model for RFE
-        base_model = LogisticRegression(solver='liblinear', random_state=42)
-
-        # Initialize RFE with cross-validation
-        rfe_cv = RFECV(estimator=base_model, step=step, cv=cv, scoring=scoring)
-
-        # Fit RFE
-        rfe_cv.fit(X_selected, y)
-
-        # Identify the features that were selected by RFE
-        selected_features = X_selected.columns[rfe_cv.support_]
-
-        print(f"Selected features by RFE: {list(selected_features)}")
-
-        # Update the model configuration to use only selected features
-        self.models[model_name]['features'] = list(selected_features)
-        print(f"Model {model_name} updated to use selected features.")
+        if model_name == 'herder':
+            # Perform feature selection specifically for the HerderModel
+            self.herder_model.select_features(X, y)
+            updated_mcp_features = self.herder_model.mcp_features
+            updated_herder_features = self.herder_model.herder_features
+            all_selected_features = updated_mcp_features + updated_herder_features
+            self.models[model_name]['features'] = all_selected_features
+            print(f"Updated features for {model_name}: {all_selected_features}")
+        else:
+            # For other models, proceed with the usual RFE feature selection process
+            X_selected = X[self.models[model_name]["features"]]
+            base_model = LogisticRegression(solver='liblinear', random_state=42)
+            rfe_cv = RFECV(estimator=base_model, step=step, cv=cv, scoring=scoring)
+            rfe_cv.fit(X_selected, y)
+            selected_features = X_selected.columns[rfe_cv.support_]
+            print(f"Selected features by RFE for {model_name}: {list(selected_features)}")
+            self.models[model_name]['features'] = list(selected_features)
 
     def get_updated_ensemble_features(self):
-        """
-        Aggregates the selected features from all models after RFE and
-        returns a combined list of unique features for the ensemble.
-        """
+        # Then, proceed with aggregating ensemble features
         ensemble_features = set()
-
-        # Iterate through each model to gather selected features
         for model_name, model_info in self.models.items():
             selected_features = model_info.get('features', [])
             ensemble_features.update(selected_features)
-
         return list(ensemble_features)
 
     def plot_roc_curves(self, model_name, data_type='validation'):

@@ -31,6 +31,8 @@ class VotingModel:
     def load_data(self):
         self.X, self.y = self.data_preprocessor.load_and_transform_data()
         self.X = self.X[self.ensemble_features]
+        print(self.X.columns)
+
 
     def train_voting_classifier(self):
         self.reset()
