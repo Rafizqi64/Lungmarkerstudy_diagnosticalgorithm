@@ -4,12 +4,11 @@ import seaborn as sns
 import shap
 from sklearn.base import clone
 from sklearn.feature_selection import RFECV
-from sklearn.linear_model import LogisticRegression, LogisticRegressionCV
-from sklearn.metrics import (accuracy_score, auc, f1_score, precision_score,
-                             recall_score, roc_auc_score, roc_curve)
-from sklearn.model_selection import (GridSearchCV, ParameterGrid,
-                                     StratifiedKFold, cross_val_predict,
-                                     learning_curve)
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import (accuracy_score, f1_score, precision_recall_curve,
+                             precision_score, recall_score, roc_auc_score,
+                             roc_curve)
+from sklearn.model_selection import StratifiedKFold
 
 from data_preprocessing import DataPreprocessor
 from herder_model import HerderModel
@@ -63,9 +62,11 @@ class Model:
 
         return trained_models
 
-    def calculate_and_store_metrics(self, model_name, fold_metrics):
+    def calculate_and_store_metrics(self, model_name, fold_metrics, ppv_target=0.98):
         # Initialize lists to collect metrics
-        accuracies, precisions, recalls, f1_scores, roc_aucs, train_roc_aucs, val_roc_aucs = [], [], [], [], [], [], []
+        accuracies_before, precisions_before, recalls_before, f1_scores_before = [], [], [], []
+        accuracies_after, precisions_after, recalls_after, f1_scores_after = [], [], [], []
+        thresholds, train_roc_aucs, val_roc_aucs = [], [], []
 
         # ROC data initialization
         roc_data = {'train': {'fpr': [], 'tpr': [], 'roc_auc': []},
@@ -73,53 +74,88 @@ class Model:
 
         for metrics in fold_metrics:
             # Unpack metrics
-            y_train, y_train_pred, y_train_proba, y_test, y_test_pred, y_test_proba, train_fpr, train_tpr, train_roc_auc, val_fpr, val_tpr, val_roc_auc = metrics
+            y_train, y_train_pred, y_train_proba, y_test, y_test_pred, y_test_proba, \
+            train_fpr, train_tpr, train_roc_auc, val_fpr, val_tpr, val_roc_auc = metrics
 
-            # Accuracy, Precision, Recall, F1, ROC AUC calculations
-            accuracies.append(accuracy_score(y_test, y_test_pred))
-            precisions.append(precision_score(y_test, y_test_pred, average='binary'))
-            recalls.append(recall_score(y_test, y_test_pred, average='binary'))
-            f1_scores.append(f1_score(y_test, y_test_pred, average='binary'))
-            roc_aucs.append(roc_auc_score(y_test, y_test_proba))
+            # Calculate metrics before applying PPV threshold
+            accuracies_before.append(accuracy_score(y_test, y_test_pred))
+            precisions_before.append(precision_score(y_test, y_test_pred, zero_division=0))
+            recalls_before.append(recall_score(y_test, y_test_pred))
+            f1_scores_before.append(f1_score(y_test, y_test_pred))
 
+            # Store train and validation ROC AUC for metrics calculation
             train_roc_aucs.append(train_roc_auc)
             val_roc_aucs.append(val_roc_auc)
+
+            # Determine PPV threshold using precision_recall_curve
+            precision, recall, thresholds_pr = precision_recall_curve(y_test, y_test_proba)
+            threshold_indices = np.where(precision >= ppv_target)[0]
+            threshold = thresholds_pr[threshold_indices[0] - 1] if threshold_indices.size > 0 else 1.0
+            thresholds.append(threshold)
+
+            y_pred_adjusted = (y_test_proba >= threshold).astype(int)
+
+            # Calculate metrics after applying PPV threshold
+            accuracies_after.append(accuracy_score(y_test, y_pred_adjusted))
+            precisions_after.append(precision_score(y_test, y_pred_adjusted, zero_division=0))
+            recalls_after.append(recall_score(y_test, y_pred_adjusted))
+            f1_scores_after.append(f1_score(y_test, y_pred_adjusted))
 
             # Store ROC curve data
             roc_data['train']['fpr'].append(train_fpr)
             roc_data['train']['tpr'].append(train_tpr)
             roc_data['train']['roc_auc'].append(train_roc_auc)
-
             roc_data['validation']['fpr'].append(val_fpr)
             roc_data['validation']['tpr'].append(val_tpr)
             roc_data['validation']['roc_auc'].append(val_roc_auc)
 
-        # Calculate mean and standard deviation for each metric, including train and validation ROC AUC
-        mean_metrics = {
-            "Accuracy": np.mean(accuracies),
-            "Precision": np.mean(precisions),
-            "Recall": np.mean(recalls),
-            "F1": np.mean(f1_scores),
-            "Train ROC AUC": np.mean(train_roc_aucs),
-            "Validation ROC AUC": np.mean(val_roc_aucs)
+        # Aggregate and store metrics
+        avg_threshold = np.mean(thresholds)
+        self.models[model_name]['metrics'] = {
+            'before_threshold': {
+                "Accuracy": np.mean(accuracies_before),
+                "Precision": np.mean(precisions_before),
+                "Recall": np.mean(recalls_before),
+                "F1": np.mean(f1_scores_before),
+                "Train ROC AUC": np.mean(train_roc_aucs),
+                "Validation ROC AUC": np.mean(val_roc_aucs),
+            },
+            'after_threshold': {
+                "Accuracy": np.mean(accuracies_after),
+                "Precision": np.mean(precisions_after),
+                "Recall": np.mean(recalls_after),
+                "F1": np.mean(f1_scores_after),
+                "Train ROC AUC": np.mean(train_roc_aucs),
+                "Validation ROC AUC": np.mean(val_roc_aucs),
+            },
+            'ppv_threshold': avg_threshold,
         }
+        self.models[model_name]['roc_data'] = roc_data
+
+        # Calculate standard deviations for Train ROC AUC and Validation ROC AUC
         std_metrics = {
             "Train ROC AUC STD": np.std(train_roc_aucs),
             "Validation ROC AUC STD": np.std(val_roc_aucs)
         }
 
-        # Additionally, store the ROC data
-        self.models[model_name]['roc_data'] = roc_data
+        # Store the standard deviation metrics
+        self.models[model_name]['metrics_std'] = std_metrics
 
-        # Print and store metrics
-        print(f"Metrics for {model_name} Model:")
-        for metric, value in mean_metrics.items():
+        # Print summary of metrics including Train and Validation ROC AUC under each threshold section
+        print(f"\nMetrics for {model_name} Model (Before PPV Threshold):")
+        for metric, value in self.models[model_name]['metrics']['before_threshold'].items():
             print(f"{metric}: {value:.4f}")
+
+        print(f"\nMetrics for {model_name} Model (After PPV Threshold):")
+        for metric, value in self.models[model_name]['metrics']['after_threshold'].items():
+            print(f"{metric}: {value:.4f}")
+
+        print(f"\nAverage PPV Threshold used for {model_name}: {avg_threshold:.4f}")
+
+        # Print standard deviations for Train and Validation ROC AUC
+        print(f"\nStandard Deviations:")
         for metric, value in std_metrics.items():
             print(f"{metric}: {value:.4f}")
-
-        self.models[model_name]['metrics'] = mean_metrics
-        self.models[model_name]['metrics_std'] = std_metrics
 
     def train_with_cross_validation(self, X, y, estimator, model_name, n_splits=5):
         skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=42)
@@ -150,10 +186,10 @@ class Model:
 
         self.calculate_and_store_metrics(model_name, fold_metrics)
 
-        estimator.fit(X, y)  # Retrain on the whole dataset
+        estimator.fit(X, y)
         self.models[model_name]['estimator'] = estimator
 
-    def apply_rfe_feature_selection(self, model_name, step=3, cv=5, scoring='accuracy'):
+    def apply_rfe_feature_selection(self, model_name, step=3, cv=5, scoring='roc_auc'):
         """
         Applies Recursive Feature Elimination (RFE) with cross-validation to select features.
 
@@ -192,6 +228,20 @@ class Model:
         # Update the model configuration to use only selected features
         self.models[model_name]['features'] = list(selected_features)
         print(f"Model {model_name} updated to use selected features.")
+
+    def get_updated_ensemble_features(self):
+        """
+        Aggregates the selected features from all models after RFE and
+        returns a combined list of unique features for the ensemble.
+        """
+        ensemble_features = set()
+
+        # Iterate through each model to gather selected features
+        for model_name, model_info in self.models.items():
+            selected_features = model_info.get('features', [])
+            ensemble_features.update(selected_features)
+
+        return list(ensemble_features)
 
     def plot_roc_curves(self, model_name, data_type='validation'):
         """
@@ -275,25 +325,33 @@ class Model:
         plt.title(f"{model_name} SHAP Beeswarm Plot", fontsize=20)
         plt.show()
 
-
     def plot_prediction_histograms(self, model_name):
         if model_name not in self.models:
             print(f"No model found with the name {model_name}")
             return
 
-        results = self.models[model_name]["results"]
-        if not results:
+        if 'results' not in self.models[model_name] or not self.models[model_name]['results']:
             print(f"No predictions available for the {model_name} model")
+            return
+
+        if 'metrics' not in self.models[model_name] or 'ppv_threshold' not in self.models[model_name]['metrics']:
+            print(f"PPV threshold not calculated for the {model_name} model")
             return
 
         plt.figure(figsize=(15, 7))
 
-        true_labels = np.concatenate([metrics[0] for metrics in results])  # y_test from each fold
-        predictions = np.concatenate([metrics[2] for metrics in results])  # y_test_proba from each fold
+        true_labels = np.concatenate([result[0] for result in self.models[model_name]["results"]])
+        predictions = np.concatenate([result[2] for result in self.models[model_name]["results"]])
 
-        # Plot histograms
+        # Retrieve the PPV threshold used for this model
+        ppv_threshold = self.models[model_name]['metrics']['ppv_threshold']
+
+        # Plot histograms for true negative and true positive predictions
         sns.histplot(predictions[true_labels == 0], bins=20, stat="density", kde=True, color='blue', alpha=0.5, label='Negative Class')
         sns.histplot(predictions[true_labels == 1], bins=20, stat="density", kde=True, color='red', alpha=0.7, label='Positive Class')
+
+        # Add a vertical line to indicate the PPV threshold
+        plt.axvline(x=ppv_threshold, color='green', linestyle='--', label=f'PPV Threshold: {ppv_threshold:.2f}')
 
         plt.title(f'Prediction Probability Distribution for {model_name} Model', fontsize=20)
         plt.xlabel('Predicted Probability of Positive Class', fontsize=16)

@@ -67,6 +67,16 @@ class HerderModel(BaseEstimator, ClassifierMixin):
 
         return self.herder_model.predict_proba(X_herder)
 
+    def predict(self, X):
+        # Check if the model is fitted
+        if not self.is_fitted:
+            raise RuntimeError("You must train classifer before predicting data!")
+
+        # Generate predictions using the logic based on predict_proba
+        probas = self.predict_proba(X)
+        # Return the class with the highest probability
+        return np.argmax(probas, axis=1)
+
     def _evaluate_fold(self, X_train, X_test, y_train, y_test):
         # Predictions for training data
         y_train_pred = self.herder_model.predict(X_train)

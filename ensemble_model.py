@@ -5,11 +5,9 @@ import shap
 from sklearn.ensemble import VotingClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import (RocCurveDisplay, accuracy_score, auc, f1_score,
-                             precision_score, recall_score, roc_auc_score,
-                             roc_curve)
-from sklearn.model_selection import (GridSearchCV, StratifiedKFold,
-                                     cross_val_predict, cross_validate,
-                                     train_test_split)
+                             precision_recall_curve, precision_score,
+                             recall_score, roc_auc_score, roc_curve)
+from sklearn.model_selection import StratifiedKFold, cross_validate
 
 from data_preprocessing import DataPreprocessor
 
@@ -35,52 +33,66 @@ class VotingModel:
         self.X = self.X[self.ensemble_features]
 
     def train_voting_classifier(self):
-        self.reset()  # Reset the model state before training
+        self.reset()
         estimators = [(name, model) for name, model in self.trained_models.items()]
         self.voting_classifier = VotingClassifier(estimators=estimators, voting='soft')
         skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
 
-        accuracies = []
-        precisions = []
-        recalls = []
-        f1_scores = []
-        roc_aucs = []
+        metrics_before, metrics_after = {'accuracy': [], 'precision': [], 'recall': [], 'f1': [], 'train_roc_auc': [], 'val_roc_auc': []}, {'accuracy': [], 'precision': [], 'recall': [], 'f1': [], 'train_roc_auc': [], 'val_roc_auc': []}
 
-        # Initialize an empty list to store predictions and probabilities for all folds
-        all_predictions = []
-        all_probabilities = []
+        aggregated_probabilities = []
+        aggregated_y_test = []
 
         for train_index, test_index in skf.split(self.X, self.y):
             X_train, X_test = self.X.iloc[train_index], self.X.iloc[test_index]
             y_train, y_test = self.y.iloc[train_index], self.y.iloc[test_index]
             self.voting_classifier.fit(X_train, y_train)
-            y_pred = self.voting_classifier.predict(X_test)
+
+            y_train_proba = self.voting_classifier.predict_proba(X_train)[:, 1]
             y_proba = self.voting_classifier.predict_proba(X_test)[:, 1]
+            y_pred = (y_proba >= 0.5).astype(int)
+            thresholds = []
+            aggregated_probabilities.extend(y_proba.tolist())
+            aggregated_y_test.extend(y_test.tolist())
 
-            accuracies.append(accuracy_score(y_test, y_pred))
-            precisions.append(precision_score(y_test, y_pred))
-            recalls.append(recall_score(y_test, y_pred))
-            f1_scores.append(f1_score(y_test, y_pred))
-            roc_aucs.append(roc_auc_score(y_test, y_proba))
+            metrics_before['accuracy'].append(accuracy_score(y_test, y_pred))
+            metrics_before['precision'].append(precision_score(y_test, y_pred, zero_division=0))
+            metrics_before['recall'].append(recall_score(y_test, y_pred))
+            metrics_before['f1'].append(f1_score(y_test, y_pred))
+            metrics_before['train_roc_auc'].append(roc_auc_score(y_train, y_train_proba))
+            metrics_before['val_roc_auc'].append(roc_auc_score(y_test, y_proba))
 
-            # Store predictions and probabilities for this fold
-            all_predictions.append((y_test, y_pred))
-            all_probabilities.append((y_test, y_proba))
+            # determine and apply custom ppv threshold
+            precision, recall, thresholds_pr = precision_recall_curve(y_test, y_proba)
+            threshold_indices = np.where(precision >= 0.95)[0]
+            threshold = thresholds_pr[threshold_indices[0] - 1] if threshold_indices.size > 0 else 1.0
+            thresholds.append(threshold)
 
-        # After cross-validation, store the predictions and probabilities in self.results
-        self.results['predictions'] = all_predictions
-        self.results['probabilities'] = all_probabilities
+            y_pred_adjusted = (y_proba >= threshold).astype(int)
+            metrics_after['accuracy'].append(accuracy_score(y_test, y_pred_adjusted))
+            metrics_after['precision'].append(precision_score(y_test, y_pred_adjusted, zero_division=0))
+            metrics_after['recall'].append(recall_score(y_test, y_pred_adjusted))
+            metrics_after['f1'].append(f1_score(y_test, y_pred_adjusted))
+            metrics_after['train_roc_auc'].append(roc_auc_score(y_train, y_train_proba))
+            metrics_after['val_roc_auc'].append(roc_auc_score(y_test, y_proba))
 
-        # Calculating the mean of the metrics
-        metrics = {
-            "Accuracy": np.mean(accuracies),
-            "Precision": np.mean(precisions),
-            "Recall": np.mean(recalls),
-            "F1": np.mean(f1_scores),
-            "ROC AUC": np.mean(roc_aucs),
-        }
-        print(f'Metrics for {self.model_name} Model')
-        print(metrics)
+        self.results['probabilities'] = np.array(aggregated_probabilities)
+        self.results['y_test'] = np.array(aggregated_y_test)
+        self.results['thresholds'] = thresholds
+        self.results['average_threshold'] = np.mean(thresholds)
+
+        self.print_metrics("(before ppv threshold)", metrics_before)
+        self.print_metrics("(after ppv threshold)", metrics_after)
+        avg_threshold = np.mean(thresholds)
+        print(f"\naverage ppv threshold used for the {self.model_name} model: {avg_threshold:.4f}")
+
+    def print_metrics(self, phase, metrics):
+        print(f"\nmetrics for the {self.model_name} model {phase}:")
+        for metric_name, values in metrics.items():
+            avg_value = np.mean(values)
+            std_value = np.std(values)
+            print(f"{metric_name.capitalize()}: {avg_value:.4f} (std: {std_value:.4f})")
+
 
     def plot_roc_curves(self):
         cv = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
@@ -138,17 +150,20 @@ class VotingModel:
         plt.show()
 
     def plot_prediction_histograms(self):
-        if not self.results:
-            print("No results found for the voting model")
+        if not self.results or 'y_test' not in self.results or self.results['probabilities'] is None:
+            print("No results, necessary data, or probabilities found for the voting model.")
             return
 
-        # Assuming 'probabilities' contains the probabilities for the positive class across all CV folds
-        probabilities = np.concatenate([proba for _, proba in self.results['probabilities']])
-        true_labels = np.concatenate([y_test for y_test, _ in self.results['probabilities']])
+        probabilities = self.results['probabilities']
+        true_labels = self.results['y_test']
+        average_threshold = self.results.get('average_threshold', 0.5)
 
         plt.figure(figsize=(15, 7))
         sns.histplot(probabilities[true_labels == 0], bins=20, kde=True, label='Negatives', color='blue', alpha=0.5)
         sns.histplot(probabilities[true_labels == 1], bins=20, kde=True, label='Positives', color='red', alpha=0.7)
+
+        if average_threshold is not None:
+            plt.axvline(x=average_threshold, color='green', linestyle='--', label=f'Threshold: {average_threshold:.2f}')
 
         plt.title('Probability Distribution for the Voting Model', fontsize=20)
         plt.xlabel('Probability of being Positive Class', fontsize=16)

@@ -73,7 +73,7 @@ features_BH_output = [
             'remainder__Herder score (%)',
         ]
 
-features_ensemble = list(set(features_brock + features_herder + features_lbx))
+# features_ensemble = list(set(features_brock + features_herder + features_lbx))
 features_brock_and_herder = list(set(features_brock + features_herder))
 
 # Clear previously stored models and their results
@@ -87,8 +87,16 @@ model_manager.add_model("lbx", features_lbx)
 # model_manager.add_model("nsclc", features_nsclc)
 
 # Train models and prepare the voting ensemble
+model_manager.apply_rfe_feature_selection("brock")
+model_manager.apply_rfe_feature_selection("herder")
 model_manager.apply_rfe_feature_selection("lbx")
 trained_models = model_manager.train_models()
+features_ensemble = model_manager.get_updated_ensemble_features()
+
+
+#===========================#
+#     INDIVIDUAL MODELS     #
+#===========================#
 
 # print("\nBrock Formula")
 # print(model_manager.get_logistic_regression_formula('brock'))
@@ -131,7 +139,6 @@ score_model.fit_evaluate()
 score_model.print_scores()
 # score_model.plot_roc_curve()
 # score_model.plot_prediction_histogram()
-# Reset any previous state in the voting model and train the voting classifier
 
 
 #===========================#
