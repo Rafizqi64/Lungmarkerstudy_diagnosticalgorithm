@@ -1,7 +1,8 @@
 import numpy as np
 from sklearn.base import BaseEstimator, ClassifierMixin
-from sklearn.feature_selection import RFECV
-from sklearn.linear_model import LogisticRegression
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.feature_selection import RFECV, SelectFromModel
+from sklearn.linear_model import LogisticRegression, LogisticRegressionCV
 from sklearn.metrics import (accuracy_score, f1_score, precision_score,
                              recall_score, roc_auc_score, roc_curve)
 from sklearn.model_selection import StratifiedKFold
@@ -16,8 +17,8 @@ class HerderModel(BaseEstimator, ClassifierMixin):
         self.is_fitted = False
         self.mcp_features = [
             'remainder__Current/Former smoker',
-            # 'remainder__Previous History of Extra-thoracic Cancer',
-            # 'remainder__Nodule size (1-30 mm)',
+            'remainder__Previous History of Extra-thoracic Cancer',
+            'remainder__Nodule size (1-30 mm)',
             'remainder__Nodule Upper Lobe',
             'remainder__Spiculation',
             ]
@@ -29,7 +30,51 @@ class HerderModel(BaseEstimator, ClassifierMixin):
             ]
         self.model_metrics = {}
 
-    def select_features(self, X, y):
+
+    def select_features_rf(self, X, y):
+        """
+        Applies feature selection using a Random Forest classifier.
+        """
+        print("Applying Random Forest for feature selection...")
+
+        # Assuming you have defined mcp_features and herder_features
+        for feature_set_name in ['mcp_features', 'herder_features']:
+            X_selected = X[getattr(self, feature_set_name)]
+            # Initialize Random Forest to estimate feature importances
+            rf = RandomForestClassifier(n_estimators=100, random_state=42)
+            rf.fit(X_selected, y)
+
+            # Select features based on importance weights
+            selector = SelectFromModel(rf, prefit=True)
+            selected_features_mask = selector.get_support()
+            selected_features = X_selected.columns[selected_features_mask]
+
+            # Update the feature sets based on the selection
+            setattr(self, feature_set_name, list(selected_features))
+            print(f"Updated {feature_set_name}:", getattr(self, feature_set_name))
+
+    def select_features_l1(self, X, y):
+        """
+        Applies L1 regularization (via LogisticRegressionCV) for feature selection.
+        """
+        print("Applying L1 regularization for feature selection...")
+
+        # Assuming you have defined mcp_features and herder_features
+        for feature_set_name in ['mcp_features', 'herder_features']:
+            X_selected = X[getattr(self, feature_set_name)]
+            # Initialize Logistic Regression with L1 penalty using cross-validation
+            l1_model = LogisticRegressionCV(cv=5, penalty='l1', solver='liblinear', random_state=42)
+            l1_model.fit(X_selected, y)
+
+            # Identify non-zero coefficients (selected features)
+            selected_features_mask = l1_model.coef_.flatten() != 0
+            selected_features = X_selected.columns[selected_features_mask]
+
+            # Update the feature sets based on the selection
+            setattr(self, feature_set_name, list(selected_features))
+            print(f"Updated {feature_set_name}:", getattr(self, feature_set_name))
+
+    def select_features_rfe(self, X, y):
         """
         Applies RFECV for feature selection on both MCP and Herder feature sets.
         Updates the feature sets based on the selection results.
@@ -148,7 +193,6 @@ class HerderModel(BaseEstimator, ClassifierMixin):
             roc_data['validation']['tpr'].append(val_tpr)
             roc_data['validation']['roc_auc'].append(val_roc_auc)
 
-        # Calculate mean and standard deviation for metrics
         mean_metrics = {
             "Accuracy": np.mean(accuracies),
             "Precision": np.mean(precisions),
@@ -158,16 +202,19 @@ class HerderModel(BaseEstimator, ClassifierMixin):
             "Validation ROC AUC": np.mean(val_roc_aucs),
         }
         std_metrics = {
+            "Accuracy STD": np.std(accuracies),
+            "Precision STD": np.std(precisions),
+            "Recall STD": np.std(recalls),
+            "F1 STD": np.std(f1_scores),
             "Train ROC AUC STD": np.std(train_roc_aucs),
             "Validation ROC AUC STD": np.std(val_roc_aucs),
         }
 
-        # Print and store metrics
-#         print(f"Metrics for {model_name} Model:")
-        # for metric, value in mean_metrics.items():
-            # print(f"{metric}: {value:.4f}")
-        # for metric, value in std_metrics.items():
-            # print(f"{metric}: {value:.4f}")
+        # Print and store metrics including standard deviations
+        print(f"Metrics for {model_name} Model:")
+        for metric, value in mean_metrics.items():
+            std_metric = std_metrics.get(metric + " STD", 0)  # Default to 0 if not found
+            print(f"{metric}: {value:.4f} (std: {std_metric:.4f})")
 
         self.model_metrics[model_name] = {
             'metrics': mean_metrics,
@@ -189,11 +236,10 @@ class HerderModel(BaseEstimator, ClassifierMixin):
         mcp_formula = format_formula(self.mcp_features, self.mcp_model.coef_[0], self.mcp_model.intercept_[0])
         print("MCP Model Formula:")
         print(mcp_formula)
-        print()  # For spacing
 
         # Herder Model Formula
         # Note: We add 'MCP_Output' to the herder_features for formula generation
         herder_features_with_mcp = self.herder_features + ['MCP_Output']
         herder_formula = format_formula(herder_features_with_mcp, self.herder_model.coef_[0], self.herder_model.intercept_[0])
-        print("Herder Model Formula:")
+        print("\nHerder Model Formula:")
         print(herder_formula)

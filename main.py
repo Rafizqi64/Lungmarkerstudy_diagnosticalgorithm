@@ -1,3 +1,4 @@
+import numpy as np
 import pandas as pd
 
 from data_preprocessing import DataPreprocessor
@@ -29,14 +30,13 @@ features_herder = [
             'cat__PET-CT Findings_Faint',
             'cat__PET-CT Findings_Intense',
             'cat__PET-CT Findings_Moderate',
-            'cat__PET-CT Findings_No FDG avidity',
+            # 'cat__PET-CT Findings_No FDG avidity',
             'remainder__Current/Former smoker',
             'remainder__Previous History of Extra-thoracic Cancer',
             'remainder__Nodule size (1-30 mm)',
             'remainder__Nodule Upper Lobe',
             'remainder__Spiculation',
         ]
-
 
 features_lc = [
             'remainder__CEA',
@@ -82,14 +82,26 @@ model_manager.reset_models()
 # Add models to the manager
 model_manager.add_model("brock", features_brock)
 model_manager.add_model("herder", features_herder)
-model_manager.add_model("lbx", features_lbx)
-# model_manager.add_model("lc", features_lc)
-# model_manager.add_model("nsclc", features_nsclc)
+# model_manager.add_model("herbert", features_herder)
+# model_manager.add_model("lbx", features_lbx)
+model_manager.add_model("lc", features_lc)
+model_manager.add_model("nsclc", features_nsclc)
+
+# Feature selection
+# model_manager.apply_tree_based_feature_selection("brock")
+# model_manager.apply_tree_based_feature_selection("herder")
+# model_manager.apply_tree_based_feature_selection("herbert")
+# model_manager.apply_tree_based_feature_selection("lbx")
+# model_manager.apply_rfe_feature_selection("brock")
+# model_manager.apply_rfe_feature_selection("herder")
+# model_manager.apply_rfe_feature_selection("herbert")
+# model_manager.apply_rfe_feature_selection("lbx")
+model_manager.apply_logistic_l1_feature_selection("brock", Cs=np.logspace(-6, 0, 100))
+# model_manager.apply_logistic_l1_feature_selection("herder")
+# model_manager.apply_logistic_l1_feature_selection("herbert")
+# model_manager.apply_logistic_l1_feature_selection("lbx")
 
 # Train models and prepare the voting ensemble
-model_manager.apply_rfe_feature_selection("brock")
-# model_manager.apply_rfe_feature_selection("herder")
-model_manager.apply_rfe_feature_selection("lbx")
 features_ensemble = model_manager.get_updated_ensemble_features()
 trained_models = model_manager.train_models()
 
@@ -103,6 +115,11 @@ trained_models = model_manager.train_models()
 # model_manager.plot_roc_curves('brock')
 # model_manager.generate_shap_plot('brock', features_brock)
 # model_manager.plot_prediction_histograms('brock')
+
+
+# model_manager.plot_roc_curves('herder')
+# model_manager.generate_shap_plot('herder', features_herder)
+# model_manager.plot_prediction_histograms('herder')
 
 # print("\nlc Formula")
 # print(model_manager.get_logistic_regression_formula('lc'))
@@ -129,17 +146,18 @@ trained_models = model_manager.train_models()
 
 voting_model = VotingModel(trained_models, features_ensemble, filepath, target, binary_map, 'ENSEMBLE INPUT')
 voting_model.reset()
-voting_model.train_voting_classifier()
-# voting_model.plot_roc_curves()
-voting_model.generate_shap_plot()
-# voting_model.plot_prediction_histograms()
+voting_model.train_voting_classifier('npv', 0.95)
+voting_model.plot_roc_curves()
+# voting_model.generate_shap_plot()
+voting_model.plot_prediction_histograms()
+voting_model.plot_confusion_matrices()
 
 score_model = score_based_ensemble(filepath, target, binary_map, features_ensemble_output, "ENSEMBLE OUTPUT")
 score_model.fit_evaluate()
 score_model.print_scores()
 # score_model.plot_roc_curve()
 # score_model.plot_prediction_histogram()
-
+# score_model.plot_confusion_matrix()
 
 #===========================#
 # BROCK AND HERDER ENSEMBLE #
@@ -147,15 +165,15 @@ score_model.print_scores()
 
 voting_model = VotingModel(trained_models, features_brock_and_herder, filepath, target, binary_map, 'BROCK AND HERDER INPUT')
 voting_model.reset()
-voting_model.train_voting_classifier()
+voting_model.train_voting_classifier('npv', 0.95)
 # voting_model.plot_roc_curves()
 # voting_model.generate_shap_plot()
-# voting_model.plot_prediction_histograms()
+voting_model.plot_prediction_histograms()
+voting_model.plot_confusion_matrices()
 
 score_model = score_based_ensemble(filepath, target, binary_map, features_BH_output, "BROCK AND HERDER OUTPUT")
 score_model.fit_evaluate()
 score_model.print_scores()
 # score_model.plot_roc_curve()
 # score_model.plot_prediction_histogram()
-
-
+# score_model.plot_confusion_matrix()
