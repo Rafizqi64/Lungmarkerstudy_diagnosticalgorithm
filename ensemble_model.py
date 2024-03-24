@@ -4,11 +4,10 @@ import seaborn as sns
 import shap
 from sklearn.ensemble import VotingClassifier
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import (RocCurveDisplay, accuracy_score, auc,
-                             confusion_matrix, f1_score,
+from sklearn.metrics import (accuracy_score, auc, confusion_matrix, f1_score,
                              precision_recall_curve, precision_score,
                              recall_score, roc_auc_score, roc_curve)
-from sklearn.model_selection import StratifiedKFold, cross_validate
+from sklearn.model_selection import StratifiedKFold
 
 from data_preprocessing import DataPreprocessor
 
@@ -33,82 +32,6 @@ class VotingModel:
     def load_data(self):
         self.X, self.y = self.data_preprocessor.load_and_transform_data()
         self.X = self.X[self.ensemble_features]
-
-#     def train_voting_classifier(self, threshold_metric='ppv', desired_percentage=0.95):
-        # self.reset()
-        # estimators = [(name, model) for name, model in self.trained_models.items()]
-        # self.voting_classifier = VotingClassifier(estimators=estimators, voting='soft')
-        # skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
-
-        # metrics_before, metrics_after = {'accuracy': [], 'precision': [], 'recall': [], 'f1': [], 'train_roc_auc': [], 'val_roc_auc': []}, {'accuracy': [], 'precision': [], 'recall': [], 'f1': [], 'train_roc_auc': [], 'val_roc_auc': []}
-        # thresholds = []
-        # aggregated_probabilities = []
-        # aggregated_y_test = []
-
-        # for train_index, test_index in skf.split(self.X, self.y):
-            # X_train, X_test = self.X.iloc[train_index], self.X.iloc[test_index]
-            # y_train, y_test = self.y.iloc[train_index], self.y.iloc[test_index]
-            # self.voting_classifier.fit(X_train, y_train)
-
-            # y_train_proba = self.voting_classifier.predict_proba(X_train)[:, 1]
-            # y_proba = self.voting_classifier.predict_proba(X_test)[:, 1]
-            # y_pred = (y_proba >= 0.5).astype(int)
-            # aggregated_probabilities.extend(y_proba.tolist())
-            # aggregated_y_test.extend(y_test.tolist())
-
-            # metrics_before['accuracy'].append(accuracy_score(y_test, y_pred))
-            # metrics_before['precision'].append(precision_score(y_test, y_pred, zero_division=0))
-            # metrics_before['recall'].append(recall_score(y_test, y_pred))
-            # metrics_before['f1'].append(f1_score(y_test, y_pred))
-            # metrics_before['train_roc_auc'].append(roc_auc_score(y_train, y_train_proba))
-            # metrics_before['val_roc_auc'].append(roc_auc_score(y_test, y_proba))
-
-            # # Determine and apply custom threshold based on the specified metric
-            # if threshold_metric == 'ppv':
-                # precision, recall, thresholds_pr = precision_recall_curve(y_train, y_train_proba)
-                # threshold_indices = np.where(precision >= desired_percentage)[0]
-                # threshold = thresholds_pr[threshold_indices[0] - 1] if threshold_indices.size > 0 else 1.0
-            # elif threshold_metric == 'npv':
-                # # Adjusted NPV calculation logic
-                # thresholds_pr = np.linspace(0, 1, 100)
-                # best_threshold = 0.5  # Default threshold if no better option is found
-                # best_npv = 0  # Track the best NPV found
-
-                # for threshold in thresholds_pr:
-                    # # Adjust predictions based on the threshold
-                    # y_pred_train_adjusted = (y_train_proba >= threshold).astype(int)
-                    # tn, fp, fn, tp = confusion_matrix(y_train, y_pred_train_adjusted).ravel()
-
-                    # npv_adjusted = tn / (tn + fn) if (tn + fn) > 0 else 0
-
-                    # # Update the best threshold if this NPV is better and meets/exceeds the desired percentage
-                    # if npv_adjusted > best_npv and npv_adjusted >= desired_percentage:
-                        # best_threshold = threshold
-                        # best_npv = npv_adjusted
-                # # Use the best threshold found
-                # threshold = best_threshold
-            # else:
-                # raise ValueError("Invalid threshold_metric. Choose 'ppv' or 'npv'.")
-            # thresholds.append(threshold)
-
-            # y_pred_adjusted = (y_proba >= threshold).astype(int)
-            # metrics_after['accuracy'].append(accuracy_score(y_test, y_pred_adjusted))
-            # metrics_after['precision'].append(precision_score(y_test, y_pred_adjusted, zero_division=0))
-            # metrics_after['recall'].append(recall_score(y_test, y_pred_adjusted))
-            # metrics_after['f1'].append(f1_score(y_test, y_pred_adjusted))
-            # metrics_after['train_roc_auc'].append(roc_auc_score(y_train, y_train_proba))
-            # metrics_after['val_roc_auc'].append(roc_auc_score(y_test, y_proba))
-
-        # self.results['probabilities'] = np.array(aggregated_probabilities)
-        # self.results['y_test'] = np.array(aggregated_y_test)
-        # self.results['thresholds'] = thresholds
-        # print(self.results['thresholds'])
-        # self.results['average_threshold'] = np.mean(thresholds)
-
-        # self.print_metrics(f"(before {threshold_metric} threshold)", metrics_before)
-        # self.print_metrics(f"(after {threshold_metric} threshold)", metrics_after)
-        # avg_threshold = np.mean(thresholds)
-        # print(f"\naverage {threshold_metric} threshold used for the {self.model_name} model: {avg_threshold:.4f}")
 
     def train_voting_classifier(self, desired_percentage=0.95):
         self.reset()
@@ -147,7 +70,6 @@ class VotingModel:
             elif self.threshold_metric == 'npv':
                 # Calculate NPV and adjust threshold
                 tn, fp, fn, tp = confusion_matrix(y_test, y_pred).ravel()
-                npv = tn / (tn + fn) if (tn + fn) > 0 else 0
                 thresholds_pr = sorted(list(set(y_proba)))
                 for threshold in thresholds_pr[::-1]:
                     y_pred_adjusted = (y_proba >= threshold).astype(int)
@@ -235,7 +157,6 @@ class VotingModel:
         plt.show()
 
     def generate_shap_plot(self):
-        # Ensure your voting classifier is already trained and your data (self.X) is prepared
         if not self.voting_classifier:
             print("Voting classifier is not trained.")
             return
