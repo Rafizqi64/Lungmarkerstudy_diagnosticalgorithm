@@ -35,11 +35,13 @@ class VotingModel:
 
     def train_voting_classifier(self, desired_percentage=0.95):
         self.reset()
+        # Correcting the way estimators are collected based on the new trained_models structure
         estimators = [(name, model) for name, model in self.trained_models.items()]
         self.voting_classifier = VotingClassifier(estimators=estimators, voting='soft')
         skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
 
-        metrics_before, metrics_after = {'accuracy': [], 'precision': [], 'recall': [], 'f1': [], 'train_roc_auc': [], 'val_roc_auc': []}, {'accuracy': [], 'precision': [], 'recall': [], 'f1': [], 'train_roc_auc': [], 'val_roc_auc': []}
+        metrics_before = {'accuracy': [], 'precision': [], 'recall': [], 'f1': [], 'train_roc_auc': [], 'val_roc_auc': []}
+        metrics_after = {'accuracy': [], 'precision': [], 'recall': [], 'f1': [], 'train_roc_auc': [], 'val_roc_auc': []}
         thresholds = []
         aggregated_probabilities = []
         aggregated_y_test = []
@@ -52,52 +54,70 @@ class VotingModel:
             y_train_proba = self.voting_classifier.predict_proba(X_train)[:, 1]
             y_proba = self.voting_classifier.predict_proba(X_test)[:, 1]
             y_pred = (y_proba >= 0.5).astype(int)
+
             aggregated_probabilities.extend(y_proba.tolist())
             aggregated_y_test.extend(y_test.tolist())
 
-            metrics_before['accuracy'].append(accuracy_score(y_test, y_pred))
-            metrics_before['precision'].append(precision_score(y_test, y_pred, zero_division=0))
-            metrics_before['recall'].append(recall_score(y_test, y_pred))
-            metrics_before['f1'].append(f1_score(y_test, y_pred))
-            metrics_before['train_roc_auc'].append(roc_auc_score(y_train, y_train_proba))
-            metrics_before['val_roc_auc'].append(roc_auc_score(y_test, y_proba))
-
-            # Determine and apply custom threshold based on the specified metric
-            if self.threshold_metric == 'ppv':
-                precision, recall, thresholds_pr = precision_recall_curve(y_test, y_proba)
-                threshold_indices = np.where(precision >= desired_percentage)[0]
-                threshold = thresholds_pr[threshold_indices[0] - 1] if threshold_indices.size > 0 else 1.0
-            elif self.threshold_metric == 'npv':
-                # Calculate NPV and adjust threshold
-                tn, fp, fn, tp = confusion_matrix(y_test, y_pred).ravel()
-                thresholds_pr = sorted(list(set(y_proba)))
-                for threshold in thresholds_pr[::-1]:
-                    y_pred_adjusted = (y_proba >= threshold).astype(int)
-                    tn, fp, fn, tp = confusion_matrix(y_test, y_pred_adjusted).ravel()
-                    npv_adjusted = tn / (tn + fn) if (tn + fn) > 0 else 0
-                    if npv_adjusted >= desired_percentage:
-                        break
-            else:
-                raise ValueError("Invalid threshold_metric. Choose 'precision' or 'npv'.")
+            # Metrics calculation remains unchanged
+            self.append_metrics(metrics_before, y_train, y_train_proba, y_test, y_proba, y_pred)
+            threshold = self.determine_custom_threshold(y_test, y_proba, desired_percentage)
             thresholds.append(threshold)
 
             y_pred_adjusted = (y_proba >= threshold).astype(int)
-            metrics_after['accuracy'].append(accuracy_score(y_test, y_pred_adjusted))
-            metrics_after['precision'].append(precision_score(y_test, y_pred_adjusted, zero_division=0))
-            metrics_after['recall'].append(recall_score(y_test, y_pred_adjusted))
-            metrics_after['f1'].append(f1_score(y_test, y_pred_adjusted))
-            metrics_after['train_roc_auc'].append(roc_auc_score(y_train, y_train_proba))
-            metrics_after['val_roc_auc'].append(roc_auc_score(y_test, y_proba))
+            self.append_metrics(metrics_after, y_train, y_train_proba, y_test, y_proba, y_pred_adjusted)
 
+        # Finalizing results and printing metrics remains unchanged
         self.results['probabilities'] = np.array(aggregated_probabilities)
         self.results['y_test'] = np.array(aggregated_y_test)
         self.results['thresholds'] = thresholds
         self.results['average_threshold'] = np.mean(thresholds)
+        self.print_metrics("(before custom threshold)", metrics_before)
+        self.print_metrics("(after custom threshold)", metrics_after)
 
-        self.print_metrics(f"(before {self.threshold_metric} threshold)", metrics_before)
-        self.print_metrics(f"(after {self.threshold_metric} threshold)", metrics_after)
-        avg_threshold = np.mean(thresholds)
-        print(f"\naverage ppv threshold used for the {self.model_name} model: {avg_threshold:.4f}")
+    def determine_custom_threshold(self, y_test, y_proba, desired_percentage):
+        if self.threshold_metric == 'ppv':
+            precision, recall, thresholds_pr = precision_recall_curve(y_test, y_proba)
+            threshold_indices = np.where(precision >= desired_percentage)[0]
+            return thresholds_pr[threshold_indices[0] - 1] if threshold_indices.size > 0 else 1.0
+        elif self.threshold_metric == 'npv':
+            # Convert y_test to a numpy array if it's a pandas Series
+            y_test_np = y_test.values if hasattr(y_test, 'values') else y_test
+
+            # Sort the probabilities and corresponding true labels
+            sorted_indices = np.argsort(y_proba)
+            sorted_proba = y_proba[sorted_indices]
+            sorted_y_test_np = y_test_np[sorted_indices]
+
+            # Initialize variables to track the best threshold and its NPV
+            best_threshold = None
+            best_npv = 0
+
+            # Iterate over probabilities as potential thresholds
+            for idx, threshold in enumerate(sorted_proba[:-1]):  # Exclude the last one to prevent division by zero
+                # Predictions based on current threshold
+                y_pred = (sorted_proba > threshold).astype(int)
+
+                # Confusion matrix elements
+                tn, fp, fn, tp = confusion_matrix(sorted_y_test_np, y_pred).ravel()
+
+                # Calculate NPV
+                if (tn + fn) > 0:
+                    npv = tn / (tn + fn)
+                    if npv >= desired_percentage and npv > best_npv:
+                        best_npv = npv
+                        best_threshold = threshold
+
+            # Return the best threshold found; default to 0.5 if none found
+            return best_threshold if best_threshold is not None else 0.5
+
+    def append_metrics(self, metrics_dict, y_train, y_train_proba, y_test, y_proba, y_pred):
+        metrics_dict['accuracy'].append(accuracy_score(y_test, y_pred))
+        metrics_dict['precision'].append(precision_score(y_test, y_pred, zero_division=0))
+        metrics_dict['recall'].append(recall_score(y_test, y_pred))
+        metrics_dict['f1'].append(f1_score(y_test, y_pred))
+        metrics_dict['train_roc_auc'].append(roc_auc_score(y_train, y_train_proba))
+        metrics_dict['val_roc_auc'].append(roc_auc_score(y_test, y_proba))
+
 
     def print_metrics(self, phase, metrics):
         print(f"\nmetrics for the {self.model_name} model {phase}:")
@@ -211,13 +231,24 @@ class VotingModel:
         # Compute confusion matrices for both default and custom threshold predictions
         cm_default = confusion_matrix(true_labels, default_predictions)
         cm_custom = confusion_matrix(true_labels, custom_predictions)
+                # For the default threshold
+        TP_default = cm_default[1, 1]
+        FN_default = cm_default[1, 0]
+        FP_default = cm_default[0, 1]
+        TN_default = cm_default[0, 0]
 
-        # Calculate sensitivity and specificity from confusion matrices
-        sensitivity_default = cm_default[1, 1] / (cm_default[1, 1] + cm_default[1, 0])
-        specificity_default = cm_default[0, 0] / (cm_default[0, 0] + cm_default[0, 1])
+        sensitivity_default = TP_default / (TP_default + FN_default)
+        specificity_default = TN_default / (TN_default + FP_default)
 
-        sensitivity_custom = cm_custom[1, 1] / (cm_custom[1, 1] + cm_custom[1, 0])
-        specificity_custom = cm_custom[0, 0] / (cm_custom[0, 0] + cm_custom[0, 1])
+        # For the custom threshold
+        TP_custom = cm_custom[1, 1]
+        FN_custom = cm_custom[1, 0]
+        FP_custom = cm_custom[0, 1]
+        TN_custom = cm_custom[0, 0]
+
+        sensitivity_custom = TP_custom / (TP_custom + FN_custom)
+        specificity_custom = TN_custom / (TN_custom + FP_custom)
+
 
         fig, axes = plt.subplots(1, 2, figsize=(15, 5), sharey=True)
 
@@ -232,7 +263,7 @@ class VotingModel:
         # Plotting the confusion matrix for the custom average threshold
         sns.heatmap(cm_custom, annot=True, fmt=".2f", cmap='Blues', ax=axes[1])
         axes[1].set_xlabel('Predicted labels')
-        axes[1].set_title(f'Confusion Matrix ({self.threshold_metric} Threshold {average_threshold:.2f})\nSensitivity: {sensitivity_custom:.2f}, Specificity: {specificity_custom:.2f}', fontsize=10)
+        axes[1].set_title(f'({self.threshold_metric} Threshold {average_threshold:.2f})\nSensitivity: {sensitivity_custom:.2f}, Specificity: {specificity_custom:.2f}', fontsize=10)
         axes[1].set_xticklabels(['Negative', 'Positive'])
         axes[1].set_yticklabels(['Negative', 'Positive'], rotation=0)
 
@@ -435,20 +466,40 @@ class score_based_ensemble:
         cm_default = confusion_matrix(aggregated_true_labels, default_predictions)
         cm_custom = confusion_matrix(aggregated_true_labels, custom_predictions)
 
+        # For the default threshold
+        TP_default = cm_default[1, 1]
+        FN_default = cm_default[1, 0]
+        FP_default = cm_default[0, 1]
+        TN_default = cm_default[0, 0]
+
+        sensitivity_default = TP_default / (TP_default + FN_default)
+        specificity_default = TN_default / (TN_default + FP_default)
+
+        # For the custom threshold
+        TP_custom = cm_custom[1, 1]
+        FN_custom = cm_custom[1, 0]
+        FP_custom = cm_custom[0, 1]
+        TN_custom = cm_custom[0, 0]
+
+        sensitivity_custom = TP_custom / (TP_custom + FN_custom)
+        specificity_custom = TN_custom / (TN_custom + FP_custom)
+
+
         fig, axes = plt.subplots(1, 2, figsize=(12, 5), sharey=True)
 
         # Plotting the confusion matrix for the default threshold
         sns.heatmap(cm_default, annot=True, fmt="d", cmap='Blues', ax=axes[0])
         axes[0].set_xlabel('Predicted labels')
         axes[0].set_ylabel('True labels')
-        axes[0].set_title(f'Confusion Matrix {self.model_name} (Default Threshold 0.5)', fontsize=10)
+        axes[0].set_title(f'Confusion Matrix {self.model_name} (Default Threshold 0.5)\nSensitivity: {sensitivity_default:.2f}, Specificity: {specificity_default:.2f}', fontsize=10)
         axes[0].set_xticklabels(['Negative', 'Positive'], fontsize=10)
         axes[0].set_yticklabels(['Negative', 'Positive'], rotation=0, fontsize=10)
 
         # Plotting the confusion matrix for the custom average threshold
         sns.heatmap(cm_custom, annot=True, fmt="d", cmap='Blues', ax=axes[1])
         axes[1].set_xlabel('Predicted labels')
-        axes[1].set_title(f'Confusion Matrix {self.model_name} ({self.threshold_metric} Threshold {avg_threshold:.2f})', fontsize=10)
+        axes[1].set_title(f'({self.threshold_metric} Threshold {avg_threshold:.2f})\nSensitivity: {sensitivity_custom:.2f}, Specificity: {specificity_custom:.2f}', fontsize=10)
+
         axes[1].set_xticklabels(['Negative', 'Positive'], fontsize=10)
         axes[1].set_yticklabels(['Negative', 'Positive'], rotation=0, fontsize=10)
 
