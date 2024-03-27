@@ -71,7 +71,7 @@ features_BH_output = [
         ]
 
 features_LBx_output = [
-            'remainder__% LC in TM-model',
+            # 'remainder__% LC in TM-model',
             'remainder__% NSCLC in TM-model'
         ]
 
@@ -111,7 +111,7 @@ model_manager.apply_rfe_feature_selection("herbert")
 
 # Train models and prepare the voting ensemble
 features_pmBHscore = features_brock_and_herder + features_LBx_output
-model_manager.add_model("Lbx scores + Brock and herder features", features_pmBHscore)
+model_manager.add_model("NSCLC output + Brock and herder features", features_pmBHscore)
 features_ensemble = model_manager.get_updated_ensemble_features()
 
 # features_ensembleLogistic = features_ensemble
@@ -167,12 +167,12 @@ trained_models = model_manager.train_models()
 #===========================#
 
 
-print("\nLbx scores + Brock and herder features Formula")
-print(model_manager.get_logistic_regression_formula("Lbx scores + Brock and herder features"))
-# model_manager.plot_roc_curves("Lbx scores + Brock and herder features")
-# model_manager.generate_shap_plot("Lbx scores + Brock and herder features")
-model_manager.plot_prediction_histograms("Lbx scores + Brock and herder features")
-model_manager.plot_confusion_matrices("Lbx scores + Brock and herder features")
+print("\nNSCLC output + Brock and herder features Formula")
+print(model_manager.get_logistic_regression_formula("NSCLC output + Brock and herder features"))
+model_manager.plot_roc_curves("NSCLC output + Brock and herder features")
+model_manager.generate_shap_plot("NSCLC output + Brock and herder features")
+model_manager.plot_prediction_histograms("NSCLC output + Brock and herder features")
+model_manager.plot_confusion_matrices("NSCLC output + Brock and herder features")
 
 # print("\nensembleLogistic Formula")
 # print(model_manager.get_logistic_regression_formula('ensembleLogistic'))
@@ -181,7 +181,7 @@ model_manager.plot_confusion_matrices("Lbx scores + Brock and herder features")
 # model_manager.plot_prediction_histograms('ensembleLogistic')
 
 
-voting_model = VotingModel(trained_models, features_ensemble, filepath, target, binary_map, 'VOTING INPUT', threshold_metric='npv')
+voting_model = VotingModel(trained_models, features_ensemble, filepath, target, binary_map, 'LBX + BROCK AND HERDER INPUT', threshold_metric='npv')
 voting_model.reset()
 voting_model.train_voting_classifier()
 voting_model.plot_roc_curves()
@@ -190,7 +190,7 @@ voting_model.plot_roc_curves()
 voting_model.plot_confusion_matrices()
 
 
-score_model = score_based_ensemble(filepath, target, binary_map, features_ensemble_output, "ENSEMBLE OUTPUT", threshold_metric='npv')
+score_model = score_based_ensemble(filepath, target, binary_map, features_ensemble_output, "LBX + BROCK AND HERDER OUTPUT", threshold_metric='npv')
 score_model.fit_evaluate()
 score_model.print_scores()
 score_model.plot_roc_curve()

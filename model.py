@@ -400,7 +400,7 @@ class Model:
 
         plt.axvline(x=mean_threshold, color='green', linestyle='--', label=f'Mean Threshold: {mean_threshold:.2f}')
 
-        plt.title(f'Prediction Probability Distribution for {model_name} Model', fontsize=16)
+        plt.title(f'Prediction Probability Distribution for {model_name} Model', fontsize=10)
         plt.xlabel('Predicted Probability of Positive Class', fontsize=16)
         plt.ylabel('Density', fontsize=16)
         plt.legend(fontsize=12)
@@ -569,7 +569,7 @@ class Model:
         # Plotting the confusion matrix for the custom average threshold
         sns.heatmap(cm_custom, annot=True, fmt="d", cmap='Blues', ax=axes[1])
         axes[1].set_xlabel('Predicted labels')
-        axes[1].set_title(f'{model_name} (Custom Threshold {average_threshold:.2f})\nSensitivity: {sensitivity_custom:.2f}, Specificity: {specificity_custom:.2f}')
+        axes[1].set_title(f'{self.threshold_metric} Threshold {average_threshold:.2f})\nSensitivity: {sensitivity_custom:.2f}, Specificity: {specificity_custom:.2f}')
         axes[1].set_xticklabels(['Negative', 'Positive'])
         axes[1].set_yticklabels(['Negative', 'Positive'], rotation=0)
 

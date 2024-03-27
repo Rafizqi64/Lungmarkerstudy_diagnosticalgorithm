@@ -396,10 +396,8 @@ class score_based_ensemble:
 
         # Plot the mean ROC curve
         plt.plot(mean_fpr, mean_tpr, color='blue', label=f'Mean ROC (AUC = {mean_auc:.2f} ± {std_auc:.2f})', lw=2, alpha=0.8)
-
         # Plot the average threshold point on the ROC curve
         plt.scatter(avg_threshold, interp_mean_tpr_at_threshold, color='black', zorder=5, label=f'Avg. Threshold at FPR={avg_threshold:.2f}, TPR={interp_mean_tpr_at_threshold:.2f}')
-
         std_tpr = np.std(tprs, axis=0)
         tprs_upper = np.minimum(mean_tpr + std_tpr, 1)
         tprs_lower = np.maximum(mean_tpr - std_tpr, 0)
@@ -491,7 +489,7 @@ class score_based_ensemble:
         sns.heatmap(cm_default, annot=True, fmt="d", cmap='Blues', ax=axes[0])
         axes[0].set_xlabel('Predicted labels')
         axes[0].set_ylabel('True labels')
-        axes[0].set_title(f'Confusion Matrix {self.model_name} (Default Threshold 0.5)\nSensitivity: {sensitivity_default:.2f}, Specificity: {specificity_default:.2f}', fontsize=10)
+        axes[0].set_title(f'Confusion Matrix {self.model_name} (Threshold 0.5)\nSensitivity: {sensitivity_default:.2f}, Specificity: {specificity_default:.2f}', fontsize=10)
         axes[0].set_xticklabels(['Negative', 'Positive'], fontsize=10)
         axes[0].set_yticklabels(['Negative', 'Positive'], rotation=0, fontsize=10)
 
