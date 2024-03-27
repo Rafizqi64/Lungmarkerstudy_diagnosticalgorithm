@@ -154,7 +154,7 @@ class Model:
         for metric, values in metrics.items():
             print(f"{metric.capitalize()}: {np.mean(values):.4f} (±{np.std(values):.4f})")
 
-    def determine_custom_threshold(self, y_test, y_proba, metric='ppv', desired_percentage=0.95):
+    def determine_custom_threshold(self, y_test, y_proba, metric='ppv', desired_percentage=1):
         if metric == 'ppv':
             precision, recall, thresholds = precision_recall_curve(y_test, y_proba)
             precision = precision[::-1]

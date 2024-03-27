@@ -5,24 +5,108 @@ import seaborn as sns
 import statsmodels.api as sm
 from scipy.stats import (chi2_contingency, fisher_exact, kruskal, mannwhitneyu,
                          spearmanr)
-from sklearn.metrics import confusion_matrix, roc_auc_score, roc_curve
+from sklearn.metrics import (accuracy_score, confusion_matrix, f1_score,
+                             precision_score, recall_score, roc_auc_score,
+                             roc_curve)
+from sklearn.model_selection import StratifiedKFold, cross_validate
 from statsmodels.stats.outliers_influence import variance_inflation_factor
 from statsmodels.tools.tools import add_constant
 
 
 class ModelEDA:
-
     def __init__(self, filepath):
         """Load the dataset and initialize."""
         self.df = pd.read_excel(filepath)
         self.df['Diagnosis_Encoded'] = np.where(self.df['Diagnose'] == 'No LC', 0, 1)
         self.models = ['Brock score (%)', 'Herder score (%)', '% LC in TM-model', '% NSCLC in TM-model']
         self.protein_markers = ['CA125', 'CA15.3', 'CEA', 'CYFRA 21-1', 'HE4', 'NSE', 'NSE corrected for H-index', 'proGRP', 'SCCA']
-       #  self.categorical_vars = ['Current/Former smoker',
-                        # 'Previous History of Extra-thoracic Cancer', 'Emphysema',
-                        # 'Nodule Type', 'Nodule Upper Lobe', 'Nodule Count',
-                        # 'Spiculation', 'PET-CT Findings']
-        self.categorical_vars = ['Current/Former smoker', 'Emphysema', 'Spiculation', 'PET-CT Findings']
+        self.categorical_vars = ['Current/Former smoker',
+                        'Family History of LC', 'Emphysema',
+                        'Nodule Type', 'Nodule Upper Lobe', 'Nodule Count',
+                        'Spiculation', 'PET-CT Findings']
+        # self.categorical_vars = ['Current/Former smoker', 'Emphysema', 'Spiculation', 'PET-CT Findings']
+
+    def preprocess_data(self):
+        """Preprocess the dataset."""
+        binary_map = {'Nee': 0, 'Ja': 1}
+        self.df['Family History of LC'] = self.df['Family History of LC'].replace(binary_map)
+        self.df['Emphysema'] = self.df['Emphysema'].replace(binary_map)
+        self.df['Nodule Upper Lobe'] = self.df['Nodule Upper Lobe'].replace(binary_map)
+        self.df['Spiculation'] = self.df['Spiculation'].replace(binary_map)
+
+        # One-hot encoding for Nodule Type
+        nodule_types = pd.get_dummies(self.df['Nodule Type'], prefix='Nodule_type')
+        self.df = pd.concat([self.df, nodule_types], axis=1)
+        return self.df
+
+    def evaluate_simple_model_scores(self, true_label_col, score_col, threshold=10, num_folds=5):
+        """
+        Evaluates the Brock model scores with specified metrics using Stratified K-Fold cross-validation.
+
+        Parameters:
+        - df: DataFrame containing the dataset with true labels and Brock scores.
+        - true_label_col: The name of the column containing the true binary labels.
+        - score_col: The name of the column containing the Brock scores.
+        - threshold: The threshold to convert scores into binary predictions (default is 10%).
+        - num_folds: Number of folds for Stratified K-Fold cross-validation (default is 5).
+
+        Returns:
+        - A dictionary with average values of Accuracy, Precision, Recall, F1 Score, and ROC AUC.
+        """
+        y = self.df[true_label_col].values
+        scores = self.df[score_col].values
+
+        skf = StratifiedKFold(n_splits=num_folds, shuffle=True, random_state=42)
+
+        metrics = {'accuracy': [], 'precision': [], 'recall': [], 'f1': [], 'roc_auc': []}
+
+        for train_idx, test_idx in skf.split(np.zeros(len(y)), y):  # Using dummy X since it's not used
+            y_test = y[test_idx]
+            scores_test = scores[test_idx]
+
+            # Convert scores to binary predictions based on the threshold
+            predictions = (scores_test >= threshold).astype(int)
+            # Calculate metrics for this fold
+            metrics['accuracy'].append(accuracy_score(y_test, predictions))
+            metrics['precision'].append(precision_score(y_test, predictions))
+            metrics['recall'].append(recall_score(y_test, predictions))
+            metrics['f1'].append(f1_score(y_test, predictions))
+            metrics['roc_auc'].append(roc_auc_score(y_test, scores_test))
+
+        # Calculate the average of each metric across all folds
+        avg_metrics = {metric: np.mean(scores) for metric, scores in metrics.items()}
+        std_metrics = {metric: np.std(values) for metric, values in metrics.items()}
+        metrics_output = {metric: {'average': avg, 'std_dev': std_metrics[metric]} for metric, avg in avg_metrics.items()}
+
+        return metrics_output
+
+    def plot_prediction_histogram(self, true_label_col, score_col, threshold):
+        """
+        Plots histograms of the predictions for positives and negatives, along with the threshold.
+
+        Parameters:
+        - score_col: The name of the column containing the model scores.
+        - true_label_col: The name of the column containing the true labels.
+        - threshold: The threshold value to categorize predictions.
+        """
+        scores = self.df[score_col]
+        y = self.df[true_label_col]
+        sns.set(style="whitegrid")
+        plt.figure(figsize=(15, 7))
+
+        # Plot distribution for negative and positive classes
+        sns.histplot(scores[y == 0], bins=30, kde=True, label='Negatives', color='blue', alpha=0.5)
+        sns.histplot(scores[y == 1], bins=30, kde=True, label='Positives', color='red', alpha=0.7)
+
+        # Plot threshold line
+        plt.axvline(x=threshold, color='green', linestyle='--', label=f'Threshold: {threshold:.2f}')
+
+        plt.title(f'Probability Distribution with Threshold {threshold:.2f}', fontsize=10)
+        plt.xlabel('Probability of being Positive Class', fontsize=16)
+        plt.ylabel('Density', fontsize=16)
+        plt.legend(fontsize=12)
+        plt.xlim(0, 100)
+        plt.show()
 
     def display_dataset_info(self):
         """Display dataset information in a formatted manner."""
@@ -484,7 +568,18 @@ eda = ModelEDA(filepath)
 # eda.calculate_best_sensitivity_specificity()
 # eda.test_significance_of_categorical_variables_with_model()
 # eda.test_protein_marker_significance_with_model()
-eda.test_significance_of_categorical_variables_with_diagnosis()
-eda.test_protein_marker_significance_with_diagnosis()
+# eda.test_significance_of_categorical_variables_with_diagnosis()
+# eda.test_protein_marker_significance_with_diagnosis()
 # vif_results=eda.calculate_vif_for_protein_markers()
 # print(vif_results)
+
+#=========================#
+# SIMPLE MODEL EVALUATION #
+#=========================#
+
+# Preprocess the data
+eda.preprocess_data()
+model_score = 'Brock score (%)'
+avg_metrics = eda.evaluate_simple_model_scores('Diagnosis_Encoded', model_score, 10)
+eda.plot_prediction_histogram("Diagnosis_Encoded", model_score, 10)
+print(avg_metrics)
