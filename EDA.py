@@ -5,7 +5,7 @@ import seaborn as sns
 import statsmodels.api as sm
 from scipy.stats import (chi2_contingency, fisher_exact, kruskal, mannwhitneyu,
                          spearmanr)
-from sklearn.metrics import (accuracy_score, confusion_matrix, f1_score,
+from sklearn.metrics import (accuracy_score, auc, confusion_matrix, f1_score,
                              precision_score, recall_score, roc_auc_score,
                              roc_curve)
 from sklearn.model_selection import StratifiedKFold, cross_validate
@@ -19,7 +19,7 @@ class ModelEDA:
         self.df = pd.read_excel(filepath)
         self.df['Diagnosis_Encoded'] = np.where(self.df['Diagnose'] == 'No LC', 0, 1)
         self.models = ['Brock score (%)', 'Herder score (%)', '% LC in TM-model', '% NSCLC in TM-model']
-        self.protein_markers = ['CA125', 'CA15.3', 'CEA', 'CYFRA 21-1', 'HE4', 'NSE', 'NSE corrected for H-index', 'proGRP', 'SCCA']
+        self.numerical_vars = ['Nodule size (1-30 mm)', 'CA125', 'CA15.3', 'CEA', 'CYFRA 21-1', 'HE4', 'NSE', 'NSE corrected for H-index', 'proGRP', 'SCCA']
         self.categorical_vars = ['Current/Former smoker',
                         'Family History of LC', 'Emphysema',
                         'Nodule Type', 'Nodule Upper Lobe', 'Nodule Count',
@@ -39,7 +39,7 @@ class ModelEDA:
         self.df = pd.concat([self.df, nodule_types], axis=1)
         return self.df
 
-    def evaluate_simple_model_scores(self, true_label_col, score_col, threshold=10, num_folds=5):
+    def evaluate_simple_model_scores(self, true_label_col, score_col, threshold=50, num_folds=5):
         """
         Evaluates the Brock model scores with specified metrics using Stratified K-Fold cross-validation.
 
@@ -95,13 +95,13 @@ class ModelEDA:
         plt.figure(figsize=(15, 7))
 
         # Plot distribution for negative and positive classes
-        sns.histplot(scores[y == 0], bins=30, kde=True, label='Negatives', color='blue', alpha=0.5)
-        sns.histplot(scores[y == 1], bins=30, kde=True, label='Positives', color='red', alpha=0.7)
+        sns.histplot(scores[y == 0], bins=20, kde=True, label='No LC', color='blue', alpha=0.5)
+        sns.histplot(scores[y == 1], bins=30, kde=True, label='NSCLC', color='red', alpha=0.7)
 
         # Plot threshold line
         plt.axvline(x=threshold, color='green', linestyle='--', label=f'Threshold: {threshold:.2f}')
 
-        plt.title(f'Probability Distribution with Threshold {threshold:.2f}', fontsize=10)
+        plt.title(f'Probability Distribution of {score_col} with Threshold {threshold:.2f}', fontsize=10)
         plt.xlabel('Probability of being Positive Class', fontsize=16)
         plt.ylabel('Density', fontsize=16)
         plt.legend(fontsize=12)
@@ -120,9 +120,9 @@ class ModelEDA:
         print("Summary Statistics:\n")
         print(self.df[self.models].describe())
 
-    def plot_protein_markers_distribution(self):
+    def plot_numerical_vars_distribution(self):
         """Plots the distribution of specified protein markers by LC diagnosis with individual plots for each marker."""
-        for marker in self.protein_markers:
+        for marker in self.numerical_vars:
             # Filter data for the current marker
             data_filtered = self.df[['Diagnosis_Encoded', marker]].copy()
             data_filtered.rename(columns={marker: 'Level'}, inplace=True)
@@ -230,7 +230,7 @@ class ModelEDA:
     def plot_protein_marker_correlations(self):
         """Plot a heatmap of the correlation matrix for all protein markers with LC and NSCLC values."""
         # Select only the columns related to protein markers and model scores
-        data_subset = self.df[self.protein_markers + self.models]
+        data_subset = self.df[self.numerical_vars + self.models]
 
         # Compute the correlation matrix
         corr_matrix = data_subset.corr()
@@ -326,31 +326,52 @@ class ModelEDA:
             plt.tight_layout()  # Adjust the layout to make room for the legend
             plt.show()
 
-    def plot_roc_curves(self):
-        """
-        Plots the ROC curve and calculates the AUC for each model's scores against the binary encoded diagnosis outcome.
-        """
-        for model in self.models:
-            # Ensure the data is clean and contains no NaN values for both the model scores and the encoded diagnosis
-            clean_df = self.df.dropna(subset=[model, 'Diagnosis_Encoded'])
+    def plot_roc_curve(self, true_label_col, score_col, n_splits=5, random_state=42):
+        y = self.df[true_label_col].values
+        scores = self.df[score_col].values
 
-            # Extract the model scores and the true binary encoded diagnosis outcomes
-            scores = clean_df[model]
-            true_outcomes = clean_df['Diagnosis_Encoded']
+        cv = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=random_state)
 
-            # Calculate the ROC curve and AUC
-            fpr, tpr, thresholds = roc_curve(true_outcomes, scores)
-            auc = roc_auc_score(true_outcomes, scores)
+        tprs = []
+        aucs = []
+        mean_fpr = np.linspace(0, 1, 100)
 
-            # Plotting the ROC curve
-            plt.figure()
-            plt.plot(fpr, tpr, label=f'{model} (AUC = {auc:.2f})')
-            plt.plot([0, 1], [0, 1], 'k--', label='Chance')  # Dashed diagonal for reference
-            plt.xlabel('False Positive Rate')
-            plt.ylabel('True Positive Rate')
-            plt.title(f'ROC Curve for {model}')
-            plt.legend(loc='lower right')
-            plt.show()
+        fig, ax = plt.subplots(figsize=(10, 8))
+
+        for fold, (train, test) in enumerate(cv.split(scores.reshape(-1, 1), y)):  # scores need to be reshaped if it's a 1D array
+            # No model fitting, since you're using pre-calculated scores
+            fpr, tpr, thresholds = roc_curve(y[test], scores[test])
+            roc_auc = auc(fpr, tpr)
+            aucs.append(roc_auc)
+            plt.plot(fpr, tpr, lw=1, alpha=0.3, label=f'ROC fold {fold} (AUC = {roc_auc:.2f})')
+
+            interp_tpr = np.interp(mean_fpr, fpr, tpr)
+            interp_tpr[0] = 0.0
+            tprs.append(interp_tpr)
+
+        mean_tpr = np.mean(tprs, axis=0)
+        mean_tpr[-1] = 1.0
+        mean_auc = auc(mean_fpr, mean_tpr)
+        std_auc = np.std(aucs)
+
+        plt.plot(mean_fpr, mean_tpr, color='blue',
+                 label=f'Mean ROC (AUC = {mean_auc:.2f} ± {std_auc:.2f})', lw=2, alpha=0.8)
+
+        std_tpr = np.std(tprs, axis=0)
+        tprs_upper = np.minimum(mean_tpr + std_tpr, 1)
+        tprs_lower = np.maximum(mean_tpr - std_tpr, 0)
+        plt.fill_between(mean_fpr, tprs_lower, tprs_upper, color='grey', alpha=0.2,
+                         label='± 1 std. dev.')
+
+        plt.plot([0, 1], [0, 1], linestyle='--', lw=2, color='r', label='Chance', alpha=0.8)
+        plt.xlim([0.0, 1.0])
+        plt.ylim([0.0, 1.05])
+        plt.xlabel('False Positive Rate')
+        plt.ylabel('True Positive Rate')
+        plt.title(f'Mean ROC Curve for {score_col}')
+        plt.legend(loc="lower right")
+        plt.show()
+
 
     def plot_confusion_matrices(self, threshold=50):
         """
@@ -435,14 +456,14 @@ class ModelEDA:
         print(optimal_results)
         return optimal_results
 
-    def test_protein_marker_significance_with_diagnosis(self):
+    def test_numerical_variable_significance_with_diagnosis(self):
         """Test the association between protein markers and binary diagnosis using logistic regression."""
         print("Testing association between protein markers and diagnosis:\n" + "="*60)
 
         # Encode the diagnosis variable: 'No LC' to 0, 'NSCLC' to 1
         self.df['Diagnosis_Encoded'] = np.where(self.df['Diagnose'] == 'No LC', 0, 1)
 
-        for marker in self.protein_markers:
+        for marker in self.numerical_vars:
             print(f"\nTesting association for marker: {marker}\n" + "="*60)
 
             # Prepare the data: drop rows with NaN in either the marker or the encoded diagnosis
@@ -466,12 +487,12 @@ class ModelEDA:
             except Exception as e:
                 print(f"Could not calculate association for {marker}. Reason: {str(e)}")
 
-    def test_protein_marker_significance_with_model(self):
+    def test_numerical_variable_significance_with_model(self):
         """Calculate and print the Pearson correlation coefficient and p-value for each protein marker and model score."""
         print("Testing correlation and significance between protein markers and model scores:\n" + "="*60)
         for model in self.models:
             print(f"\nTesting significance for model: {model}\n" + "="*60)
-            for marker in self.protein_markers:
+            for marker in self.numerical_vars:
                 # Ensure no NaN values are present in the series
                 clean_marker = self.df[marker].dropna()
                 clean_model_scores = self.df[model].dropna()
@@ -532,17 +553,17 @@ class ModelEDA:
                 else:
                     print(f"Not enough categories to test for {var}.")
 
-    def calculate_vif_for_protein_markers(self):
+    def calculate_vif_for_numerical_vars(self):
         """
         Calculates Variance Inflation Factors (VIF) for each protein marker in the DataFrame.
         Returns:
         - A pandas DataFrame containing the VIF for each protein marker.
         """
         # Ensure only valid protein markers present in the DataFrame are considered
-        valid_protein_markers = [marker for marker in self.protein_markers if marker in self.df.columns]
+        valid_numerical_vars = [marker for marker in self.numerical_vars if marker in self.df.columns]
 
         # Filter the DataFrame to include only the valid protein markers plus a constant term for the intercept
-        X = add_constant(self.df[valid_protein_markers])
+        X = add_constant(self.df[valid_numerical_vars])
 
         # Initialize a DataFrame to store VIF results
         vif_data = pd.DataFrame()
@@ -554,32 +575,34 @@ class ModelEDA:
 filepath = 'Dataset BEP Rafi.xlsx'  # Update with your actual file path
 eda = ModelEDA(filepath)
 #eda.display_dataset_info()
-#eda.display_summary_statistics()
+eda.display_summary_statistics()
 #eda.plot_distributions_model_score()
 #eda.plot_categorical_frequency_with_diagnosis()
 #eda.plot_relationship_with_stadium()
 #eda.plot_stadium_frequency()
 # eda.plot_node_size_distributions()
-# eda.plot_protein_markers_distribution()
+# eda.plot_numerical_vars_distribution()
 #eda.plot_model_score_vs_nodule_size()
 #eda.plot_model_score_vs_nodule_size_by_diagnosis()
-#eda.plot_roc_curves()
 #eda.plot_confusion_matrices()
 # eda.calculate_best_sensitivity_specificity()
 # eda.test_significance_of_categorical_variables_with_model()
 # eda.test_protein_marker_significance_with_model()
-# eda.test_significance_of_categorical_variables_with_diagnosis()
-# eda.test_protein_marker_significance_with_diagnosis()
-# vif_results=eda.calculate_vif_for_protein_markers()
-# print(vif_results)
+eda.test_significance_of_categorical_variables_with_diagnosis()
+eda.test_numerical_variable_significance_with_diagnosis()
+vif_results=eda.calculate_vif_for_numerical_vars()
+print(vif_results)
 
 #=========================#
 # SIMPLE MODEL EVALUATION #
 #=========================#
 
 # Preprocess the data
-eda.preprocess_data()
-model_score = 'Brock score (%)'
-avg_metrics = eda.evaluate_simple_model_scores('Diagnosis_Encoded', model_score, 10)
-eda.plot_prediction_histogram("Diagnosis_Encoded", model_score, 10)
-print(avg_metrics)
+# eda.preprocess_data()
+# model_score = '% NSCLC in TM-model'
+# target_variable = 'Diagnosis_Encoded'
+# threshold = 50
+# avg_metrics = eda.evaluate_simple_model_scores(target_variable, model_score, threshold)
+# print(avg_metrics)
+# eda.plot_prediction_histogram(target_variable, model_score, threshold)
+# eda.plot_roc_curve(target_variable, model_score)

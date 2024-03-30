@@ -160,7 +160,7 @@ class VotingModel:
         plt.plot(mean_fpr, mean_tpr, color='blue', label=f'Mean ROC (AUC = {mean_auc:.2f} ± {std_auc:.2f})', lw=2, alpha=0.8)
 
         # Plot the average threshold point
-        plt.scatter(avg_threshold, interp_mean_tpr_at_threshold, color='black', label=f'Avg. {self.threshold_metric} Threshold at FPR={avg_threshold:.2f}, TPR={interp_mean_tpr_at_threshold:.2f}')
+        # plt.scatter(avg_threshold, interp_mean_tpr_at_threshold, color='black', label=f'Avg. {self.threshold_metric} Threshold at FPR={avg_threshold:.2f}, TPR={interp_mean_tpr_at_threshold:.2f}')
 
         std_tpr = np.std(tprs, axis=0)
         tprs_upper = np.minimum(mean_tpr + std_tpr, 1)
@@ -205,7 +205,7 @@ class VotingModel:
         sns.histplot(probabilities[true_labels == 1], bins=20, kde=True, label='Positives', color='red', alpha=0.7)
 
         if average_threshold is not None:
-            plt.axvline(x=average_threshold, color='green', linestyle='--', label=f'{self.threshold_metric} Threshold: {average_threshold:.2f}')
+            plt.axvline(x=0.5, color='green', linestyle='--', label=f'Threshold: 0.5')
 
         plt.title(f'Probability Distribution for the {self.model_name} Model', fontsize=10)
         plt.xlabel('Probability of being Positive Class', fontsize=16)
@@ -249,23 +249,31 @@ class VotingModel:
         sensitivity_custom = TP_custom / (TP_custom + FN_custom)
         specificity_custom = TN_custom / (TN_custom + FP_custom)
 
+        plt.figure(figsize=(6, 5))
+        sns.heatmap(cm_default, annot=True, fmt="d", cmap='Blues')
+        plt.xlabel('Predicted labels')
+        plt.ylabel('True labels')
+        plt.title(f'Confusion Matrix {self.model_name} (Threshold 0.5)\nSensitivity: {sensitivity_default:.2f}, Specificity: {specificity_default:.2f}', fontsize=10)
+        plt.xticks(ticks=np.arange(2) + 0.5, labels=['Negative', 'Positive'], fontsize=10)
+        plt.yticks(ticks=np.arange(2) + 0.5, labels=['Negative', 'Positive'], rotation=0, fontsize=10)
 
-        fig, axes = plt.subplots(1, 2, figsize=(15, 5), sharey=True)
+
+        # fig, axes = plt.subplots(1, 2, figsize=(15, 5), sharey=True)
 
         # Plotting the confusion matrix for the default threshold
-        sns.heatmap(cm_default, annot=True, fmt=".2f", cmap='Blues', ax=axes[0])
-        axes[0].set_xlabel('Predicted labels')
-        axes[0].set_ylabel('True labels')
-        axes[0].set_title(f'Confusion Matrix {self.model_name} (Default Threshold 0.5)\nSensitivity: {sensitivity_default:.2f}, Specificity: {specificity_default:.2f}', fontsize=10)
-        axes[0].set_xticklabels(['Negative', 'Positive'])
-        axes[0].set_yticklabels(['Negative', 'Positive'], rotation=0)
+        # sns.heatmap(cm_default, annot=True, fmt=".2f", cmap='Blues', ax=axes[0])
+        # axes[0].set_xlabel('Predicted labels')
+        # axes[0].set_ylabel('True labels')
+        # axes[0].set_title(f'Confusion Matrix {self.model_name} (Default Threshold 0.5)\nSensitivity: {sensitivity_default:.2f}, Specificity: {specificity_default:.2f}', fontsize=10)
+        # axes[0].set_xticklabels(['Negative', 'Positive'])
+        # axes[0].set_yticklabels(['Negative', 'Positive'], rotation=0)
 
         # Plotting the confusion matrix for the custom average threshold
-        sns.heatmap(cm_custom, annot=True, fmt=".2f", cmap='Blues', ax=axes[1])
-        axes[1].set_xlabel('Predicted labels')
-        axes[1].set_title(f'({self.threshold_metric} Threshold {average_threshold:.2f})\nSensitivity: {sensitivity_custom:.2f}, Specificity: {specificity_custom:.2f}', fontsize=10)
-        axes[1].set_xticklabels(['Negative', 'Positive'])
-        axes[1].set_yticklabels(['Negative', 'Positive'], rotation=0)
+        # sns.heatmap(cm_custom, annot=True, fmt=".2f", cmap='Blues', ax=axes[1])
+        # axes[1].set_xlabel('Predicted labels')
+        # axes[1].set_title(f'({self.threshold_metric} Threshold {average_threshold:.2f})\nSensitivity: {sensitivity_custom:.2f}, Specificity: {specificity_custom:.2f}', fontsize=10)
+        # axes[1].set_xticklabels(['Negative', 'Positive'])
+        # axes[1].set_yticklabels(['Negative', 'Positive'], rotation=0)
 
         plt.tight_layout()
         plt.show()
@@ -279,7 +287,6 @@ class score_based_ensemble:
         self.model_name = model_name
         self.average_threshold = None
         self.threshold_metric=threshold_metric
-
     def fit_evaluate(self, n_splits=5, random_state=42, scoring=None, desired_percentage=0.95):
         X, y = self.preprocessor.load_and_transform_data()
         X_feature = X[self.score_ensemble_features]
@@ -287,35 +294,60 @@ class score_based_ensemble:
         cv = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=random_state)
         thresholds = []
 
-        # Initialize dictionaries to store scores for each metric
-        metrics = ['accuracy', 'precision', 'recall', 'f1', 'roc_auc']
-        pre_threshold_scores = {metric: [] for metric in metrics}
-        post_threshold_scores = {metric: [] for metric in metrics}
+        # Initialize dictionaries to store scores for pre- and post-threshold evaluations
+        pre_threshold_scores = {metric: [] for metric in ['accuracy', 'precision', 'recall', 'f1', 'roc_auc']}
+        post_threshold_scores = {metric: [] for metric in ['accuracy', 'precision', 'recall', 'f1', 'roc_auc']}
+
+        # To separately store train and test ROC AUC scores
+        train_roc_auc_scores = []
+        test_roc_auc_scores = []
 
         for train_idx, test_idx in cv.split(X_feature, y):
+            # Fit the model
             self.model.fit(X_feature.iloc[train_idx], y[train_idx])
-            y_proba = self.model.predict_proba(X_feature.iloc[test_idx])
-            proba_positive_class = y_proba[:, 1] if y_proba.ndim == 2 else np.expand_dims(y_proba, axis=-1)
 
-            # Calculate pre-threshold metrics
-            y_pred = (proba_positive_class >= 0.5).astype(int)
-            for metric in metrics:
-                score = self._calculate_metric(metric, y[test_idx], y_pred, proba_positive_class)
+            # Predict probabilities
+            y_proba_train = self.model.predict_proba(X_feature.iloc[train_idx])[:, 1]
+            y_proba_test = self.model.predict_proba(X_feature.iloc[test_idx])[:, 1]
+
+            # Calculate and store train and test ROC AUC scores
+            train_roc_auc_scores.append(roc_auc_score(y[train_idx], y_proba_train))
+            test_roc_auc_scores.append(roc_auc_score(y[test_idx], y_proba_test))
+
+            # Pre-threshold evaluation
+            y_pred_test = (y_proba_test >= 0.5).astype(int)  # Using 0.5 as default threshold
+            for metric in pre_threshold_scores.keys():
+                score = self._calculate_metric(metric, y[test_idx], y_pred_test, y_proba_test)
                 pre_threshold_scores[metric].append(score)
 
-            # Determine threshold and calculate post-threshold metrics
-            threshold = self._determine_threshold(desired_percentage, y[test_idx], proba_positive_class)
+            # Determine threshold for post-threshold evaluation
+            threshold = self._determine_threshold(desired_percentage, y[test_idx], y_proba_test)
             thresholds.append(threshold)
-            y_pred_threshold = (proba_positive_class >= threshold).astype(int)
-            for metric in metrics:
-                score = self._calculate_metric(metric, y[test_idx], y_pred_threshold, proba_positive_class)
+
+            # Post-threshold evaluation
+            y_pred_threshold = (y_proba_test >= threshold).astype(int)
+            for metric in post_threshold_scores.keys():
+                score = self._calculate_metric(metric, y[test_idx], y_pred_threshold, y_proba_test)
                 post_threshold_scores[metric].append(score)
 
+        # Aggregate and compute average and standard deviation for metrics
         self.average_threshold = np.mean(thresholds)
+        self.aggregate_scores(pre_threshold_scores, post_threshold_scores, train_roc_auc_scores, test_roc_auc_scores)
+
+    def aggregate_scores(self, pre_threshold_scores, post_threshold_scores, train_roc_auc_scores, test_roc_auc_scores):
         self.pre_cv_scores = {metric: np.mean(values) for metric, values in pre_threshold_scores.items()}
         self.post_cv_scores = {metric: np.mean(values) for metric, values in post_threshold_scores.items()}
+        self.train_roc_auc = np.mean(train_roc_auc_scores)
+        self.test_roc_auc = np.mean(test_roc_auc_scores)
+        print(self.train_roc_auc)
+        print(self.test_roc_auc)
+
         self.pre_cv_std = {metric: np.std(values) for metric, values in pre_threshold_scores.items()}
         self.post_cv_std = {metric: np.std(values) for metric, values in post_threshold_scores.items()}
+        self.train_roc_auc_std = np.std(train_roc_auc_scores)
+        self.test_roc_auc_std = np.std(test_roc_auc_scores)
+        print(self.train_roc_auc_std)
+        print(self.test_roc_auc_std)
 
     def _calculate_metric(self, metric, y_true, y_pred, y_proba):
         if metric == 'accuracy':
@@ -397,7 +429,7 @@ class score_based_ensemble:
         # Plot the mean ROC curve
         plt.plot(mean_fpr, mean_tpr, color='blue', label=f'Mean ROC (AUC = {mean_auc:.2f} ± {std_auc:.2f})', lw=2, alpha=0.8)
         # Plot the average threshold point on the ROC curve
-        plt.scatter(avg_threshold, interp_mean_tpr_at_threshold, color='black', zorder=5, label=f'Avg. Threshold at FPR={avg_threshold:.2f}, TPR={interp_mean_tpr_at_threshold:.2f}')
+        # plt.scatter(avg_threshold, interp_mean_tpr_at_threshold, color='black', zorder=5, label=f'Avg. Threshold at FPR={avg_threshold:.2f}, TPR={interp_mean_tpr_at_threshold:.2f}')
         std_tpr = np.std(tprs, axis=0)
         tprs_upper = np.minimum(mean_tpr + std_tpr, 1)
         tprs_lower = np.maximum(mean_tpr - std_tpr, 0)
@@ -420,13 +452,15 @@ class score_based_ensemble:
 
         sns.set(style="whitegrid")
         plt.figure(figsize=(15, 7))
-        sns.histplot(probabilities[y == 0], bins=20, kde=True, label='Negatives', color='blue', alpha=0.5)
-        sns.histplot(probabilities[y == 1], bins=20, kde=True, label='Positives', color='red', alpha=0.7)
+        sns.histplot(probabilities[y == 0], bins=10, kde=True, label='No LC', color='blue', alpha=0.5)
+        sns.histplot(probabilities[y == 1], bins=20, kde=True, label='NSCLC', color='red', alpha=0.7)
 
         # Plot average threshold
-        plt.axvline(x=self.average_threshold, color='green', linestyle='--', label=f'Avg {self.threshold_metric} Threshold: {self.average_threshold:.2f}')
+        # plt.axvline(x=self.average_threshold, color='green', linestyle='--', label=f'Avg {self.threshold_metric} Threshold: {self.average_threshold:.2f}')
 
-        plt.title(f'Probability Distribution for {self.model_name} with Avg {self.threshold_metric} Threshold {self.average_threshold:.2f}', fontsize=10)
+        plt.axvline(x=0.5, color='green', linestyle='--', label=f'Threshold: 0.5')
+        # plt.title(f'Probability Distribution for {self.model_name} with Avg {self.threshold_metric} Threshold {self.average_threshold:.2f}', fontsize=10)
+        plt.title(f'Probability Distribution for {self.model_name}', fontsize=10)
         plt.xlabel('Probability of being Positive Class', fontsize=16)
         plt.ylabel('Density', fontsize=16)
         plt.legend(fontsize=12)
@@ -482,24 +516,32 @@ class score_based_ensemble:
         sensitivity_custom = TP_custom / (TP_custom + FN_custom)
         specificity_custom = TN_custom / (TN_custom + FP_custom)
 
+        plt.figure(figsize=(6, 5))
+        sns.heatmap(cm_default, annot=True, fmt="d", cmap='Blues')
+        plt.xlabel('Predicted labels')
+        plt.ylabel('True labels')
+        plt.title(f'Confusion Matrix {self.model_name} (Threshold 0.5)\nSensitivity: {sensitivity_default:.2f}, Specificity: {specificity_default:.2f}', fontsize=10)
+        plt.xticks(ticks=np.arange(2) + 0.5, labels=['Negative', 'Positive'], fontsize=10)
+        plt.yticks(ticks=np.arange(2) + 0.5, labels=['Negative', 'Positive'], rotation=0, fontsize=10)
 
-        fig, axes = plt.subplots(1, 2, figsize=(12, 5), sharey=True)
+        # fig, axes = plt.subplots(1, 2, figsize=(12, 5), sharey=True)
+
 
         # Plotting the confusion matrix for the default threshold
-        sns.heatmap(cm_default, annot=True, fmt="d", cmap='Blues', ax=axes[0])
-        axes[0].set_xlabel('Predicted labels')
-        axes[0].set_ylabel('True labels')
-        axes[0].set_title(f'Confusion Matrix {self.model_name} (Threshold 0.5)\nSensitivity: {sensitivity_default:.2f}, Specificity: {specificity_default:.2f}', fontsize=10)
-        axes[0].set_xticklabels(['Negative', 'Positive'], fontsize=10)
-        axes[0].set_yticklabels(['Negative', 'Positive'], rotation=0, fontsize=10)
+        # sns.heatmap(cm_default, annot=True, fmt="d", cmap='Blues', ax=axes[0])
+        # axes[0].set_xlabel('Predicted labels')
+        # axes[0].set_ylabel('True labels')
+        # axes[0].set_title(f'Confusion Matrix {self.model_name} (Threshold 0.5)\nSensitivity: {sensitivity_default:.2f}, Specificity: {specificity_default:.2f}', fontsize=10)
+        # axes[0].set_xticklabels(['Negative', 'Positive'], fontsize=10)
+        # axes[0].set_yticklabels(['Negative', 'Positive'], rotation=0, fontsize=10)
 
         # Plotting the confusion matrix for the custom average threshold
-        sns.heatmap(cm_custom, annot=True, fmt="d", cmap='Blues', ax=axes[1])
-        axes[1].set_xlabel('Predicted labels')
-        axes[1].set_title(f'({self.threshold_metric} Threshold {avg_threshold:.2f})\nSensitivity: {sensitivity_custom:.2f}, Specificity: {specificity_custom:.2f}', fontsize=10)
+        # sns.heatmap(cm_custom, annot=True, fmt="d", cmap='Blues', ax=axes[1])
+        # axes[1].set_xlabel('Predicted labels')
+        # axes[1].set_title(f'({self.threshold_metric} Threshold {avg_threshold:.2f})\nSensitivity: {sensitivity_custom:.2f}, Specificity: {specificity_custom:.2f}', fontsize=10)
 
-        axes[1].set_xticklabels(['Negative', 'Positive'], fontsize=10)
-        axes[1].set_yticklabels(['Negative', 'Positive'], rotation=0, fontsize=10)
+        # axes[1].set_xticklabels(['Negative', 'Positive'], fontsize=10)
+        # axes[1].set_yticklabels(['Negative', 'Positive'], rotation=0, fontsize=10)
 
         plt.tight_layout()
         plt.show()

@@ -16,7 +16,7 @@ from herder_model import HerderModel
 
 
 class Model:
-    def __init__(self, filepath, target, binary_map, threshold_metric="npv"):
+    def __init__(self, filepath, target, binary_map, threshold_metric="ppv"):
         self.preprocessor = DataPreprocessor(filepath, target, binary_map)
         self.models = {}
         self.n_estimators = 10
@@ -395,11 +395,11 @@ class Model:
         mean_threshold = np.mean(results['thresholds']) if 'thresholds' in results else 0.5
 
         plt.figure(figsize=(15, 7))
-        sns.histplot(probabilities[true_labels == 0], bins=20, kde=True, color='blue', alpha=0.5, label='Negative Class')
-        sns.histplot(probabilities[true_labels == 1], bins=20, kde=True, color='red', alpha=0.7, label='Positive Class')
+        sns.histplot(probabilities[true_labels == 0], bins=20, kde=True, color='blue', alpha=0.5, label='No LC')
+        sns.histplot(probabilities[true_labels == 1], bins=20, kde=True, color='red', alpha=0.7, label='NSCLC')
 
-        plt.axvline(x=mean_threshold, color='green', linestyle='--', label=f'Mean Threshold: {mean_threshold:.2f}')
-
+        # plt.axvline(x=mean_threshold, color='green', linestyle='--', label=f'Mean Threshold: {mean_threshold:.2f}')
+        plt.axvline(x=0.5, color='green', linestyle='--', label=f'Threshold: 0.5')
         plt.title(f'Prediction Probability Distribution for {model_name} Model', fontsize=10)
         plt.xlabel('Predicted Probability of Positive Class', fontsize=16)
         plt.ylabel('Density', fontsize=16)
@@ -408,7 +408,7 @@ class Model:
         plt.grid(True)
         plt.show()
 
-    def plot_roc_curves(self, model_name, curve_type='test'):
+    def plot_roc_curves(self, model_name, curve_type='train'):
         if 'roc_data' not in self.models[model_name]:
             print(f"ROC curve data not available for {model_name}.")
             return
@@ -444,7 +444,7 @@ class Model:
             mean_tpr[-1] = 1.0
             std_auc = np.std([auc(roc_data[curve_type + '_fpr'][i], roc_data[curve_type + '_tpr'][i]) for i in range(len(roc_data[curve_key]))])
 
-            ax.plot(mean_fpr, mean_tpr, color='blue', label=f'Mean {curve_type.capitalize()} ROC (AUC = {mean_auc:.2f} ± {std_auc:.2f})', lw=2, alpha=0.8)
+            ax.plot(mean_fpr, mean_tpr, color='blue', label=f'Mean {curve_type.capitalize()} ROC (AUC = {mean_auc:.2f} ± {std_auc:.4f})', lw=2, alpha=0.8)
             std_tpr = np.std(tprs, axis=0)
             tprs_upper = np.minimum(mean_tpr + std_tpr, 1)
             tprs_lower = np.maximum(mean_tpr - std_tpr, 0)
@@ -558,20 +558,29 @@ class Model:
 
         fig, axes = plt.subplots(1, 2, figsize=(12, 5), sharey=True)
 
+
+        plt.figure(figsize=(6, 5))
+        sns.heatmap(cm_default, annot=True, fmt="d", cmap='Blues')
+        plt.xlabel('Predicted labels')
+        plt.ylabel('True labels')
+        plt.title(f'Confusion Matrix {model_name} (Threshold 0.5)\nSensitivity: {sensitivity_default:.2f}, Specificity: {specificity_default:.2f}', fontsize=10)
+        plt.xticks(ticks=np.arange(2) + 0.5, labels=['Negative', 'Positive'], fontsize=10)
+        plt.yticks(ticks=np.arange(2) + 0.5, labels=['Negative', 'Positive'], rotation=0, fontsize=10)
+
         # Plotting the confusion matrix for the default threshold
-        sns.heatmap(cm_default, annot=True, fmt="d", cmap='Blues', ax=axes[0], cbar=False)
-        axes[0].set_xlabel('Predicted labels')
-        axes[0].set_ylabel('True labels')
-        axes[0].set_title(f'Confusion Matrix {model_name} (Default Threshold 0.5)\nSensitivity: {sensitivity_default:.2f}, Specificity: {specificity_default:.2f}')
-        axes[0].set_xticklabels(['Negative', 'Positive'])
-        axes[0].set_yticklabels(['Negative', 'Positive'], rotation=0)
+        # sns.heatmap(cm_default, annot=True, fmt="d", cmap='Blues', ax=axes[0], cbar=False)
+        # axes[0].set_xlabel('Predicted labels')
+        # axes[0].set_ylabel('True labels')
+        # axes[0].set_title(f'Confusion Matrix {model_name} (Default Threshold 0.5)\nSensitivity: {sensitivity_default:.2f}, Specificity: {specificity_default:.2f}')
+        # axes[0].set_xticklabels(['Negative', 'Positive'])
+        # axes[0].set_yticklabels(['Negative', 'Positive'], rotation=0)
 
         # Plotting the confusion matrix for the custom average threshold
-        sns.heatmap(cm_custom, annot=True, fmt="d", cmap='Blues', ax=axes[1])
-        axes[1].set_xlabel('Predicted labels')
-        axes[1].set_title(f'{self.threshold_metric} Threshold {average_threshold:.2f})\nSensitivity: {sensitivity_custom:.2f}, Specificity: {specificity_custom:.2f}')
-        axes[1].set_xticklabels(['Negative', 'Positive'])
-        axes[1].set_yticklabels(['Negative', 'Positive'], rotation=0)
+        # sns.heatmap(cm_custom, annot=True, fmt="d", cmap='Blues', ax=axes[1])
+        # axes[1].set_xlabel('Predicted labels')
+        # axes[1].set_title(f'{self.threshold_metric} Threshold {average_threshold:.2f})\nSensitivity: {sensitivity_custom:.2f}, Specificity: {specificity_custom:.2f}')
+        # axes[1].set_xticklabels(['Negative', 'Positive'])
+        # axes[1].set_yticklabels(['Negative', 'Positive'], rotation=0)
 
         plt.tight_layout()
         plt.show()
