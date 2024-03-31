@@ -32,20 +32,22 @@ class Model:
         self.mcp_intercept = -6.8272
 
 
-    def add_model(self, model_name, features, use_mcp_scores=False):
+    def add_model(self, model_name, features, use_mcp_scores=False, CV200x=False):
         if model_name != "herder":
             self.models[model_name] = {
                 "features": features,
                 "results": {},
                 "estimator": LogisticRegression(solver='liblinear', random_state=42),
                 "use_mcp_scores": use_mcp_scores,
+                "CV200x": CV200x
             }
         else:
             # Handle Herder model differently
             self.models[model_name] = {
                 "features": features,
                 "results": {},
-                "custom_model": self.herder_model  # Direct reference to the HerderModel instance
+                "custom_model": self.herder_model,  # Direct reference to the HerderModel instance
+                "use_mcp_scores": use_mcp_scores
             }
 
     def reset_models(self):
@@ -72,7 +74,10 @@ class Model:
 
             if model_name != "herder":
                 estimator = clone(model_info["estimator"])
-                self.train_with_cross_validation(X_selected, y, estimator, model_name)
+                if model_info["CV200x"]:
+                    self.train_with_200x_cross_validation(X_selected, y, estimator, model_name)
+                else:
+                    self.train_with_cross_validation(X_selected, y, estimator, model_name)
                 model_info["estimator"] = estimator
                 trained_models[model_name] = estimator
             else:
@@ -82,6 +87,56 @@ class Model:
                 trained_models[model_name] = model_info["custom_model"]
 
         return trained_models
+
+    def train_with_200x_cross_validation(self, X, y, estimator, model_name, n_splits=5, n_iterations=200, desired_percentage=0.95):
+        all_iteration_metrics = []  # List to hold aggregated metrics for each iteration
+
+        for iteration in range(n_iterations):
+            skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=42 + iteration)
+            iteration_metrics = []  # List to hold metrics for each fold in the current iteration
+
+            for train_index, test_index in skf.split(X, y):
+                X_train, X_test = X.iloc[train_index], X.iloc[test_index]
+                y_train, y_test = y.iloc[train_index], y.iloc[test_index]
+
+                estimator.fit(X_train, y_train)
+                y_test_proba = estimator.predict_proba(X_test)[:, 1]
+
+                custom_threshold = self.determine_custom_threshold(y_test, y_test_proba, desired_percentage=desired_percentage)
+                y_test_pred_custom = (y_test_proba >= custom_threshold).astype(int)
+
+                metrics = {
+                    'accuracy': accuracy_score(y_test, y_test_pred_custom),
+                    'precision': precision_score(y_test, y_test_pred_custom, zero_division=0),
+                    'recall': recall_score(y_test, y_test_pred_custom),
+                    'f1_score': f1_score(y_test, y_test_pred_custom),
+                    'roc_auc': roc_auc_score(y_test, y_test_proba),
+                }
+
+                iteration_metrics.append(metrics)
+
+            aggregated_iteration_metrics = self.aggregate_metrics(iteration_metrics)
+            all_iteration_metrics.append(aggregated_iteration_metrics)
+
+        final_aggregated_metrics = self.aggregate_metrics_across_iterations(all_iteration_metrics)
+        self.models[model_name] = {'aggregated_metrics': final_aggregated_metrics}
+
+        self.print_aggregated_metrics("After 200 Iterations of 5-Fold Cross-Validation", final_aggregated_metrics)
+
+    def aggregate_metrics(self, iteration_metrics):
+        aggregated = {metric: [] for metric in ['accuracy', 'precision', 'recall', 'f1_score', 'roc_auc']}
+        for fm in iteration_metrics:
+            for metric in aggregated:
+                aggregated[metric].append(fm[metric])
+        return {metric: {'avg': np.mean(values), 'std': np.std(values)} for metric, values in aggregated.items()}
+
+    def aggregate_metrics_across_iterations(self, all_iteration_metrics):
+        aggregated = {metric: {'avg': [], 'std': []} for metric in all_iteration_metrics[0]}
+        for iteration in all_iteration_metrics:
+            for metric in aggregated:
+                aggregated[metric]['avg'].append(iteration[metric]['avg'])
+                aggregated[metric]['std'].append(iteration[metric]['std'])
+        return {metric: {'avg': np.mean(values['avg']), 'std': np.mean(values['std'])} for metric, values in aggregated.items()}
 
     def train_with_cross_validation(self, X, y, estimator, model_name, n_splits=5, desired_percentage=0.95):
         skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=42)
@@ -148,11 +203,10 @@ class Model:
         # After collecting metrics for all folds, calculate aggregated metrics
         self.calculate_and_store_metrics(model_name, fold_metrics)
 
-
     def print_aggregated_metrics(self, context, metrics):
         print(f"\nAggregated Metrics {context}:")
-        for metric, values in metrics.items():
-            print(f"{metric.capitalize()}: {np.mean(values):.4f} (±{np.std(values):.4f})")
+        for metric, stats in metrics.items():
+            print(f"{metric.capitalize()}: Avg = {stats['avg']:.4f} (±{stats['std']:.4f})")
 
     def determine_custom_threshold(self, y_test, y_proba, metric='ppv', desired_percentage=1):
         if metric == 'ppv':
@@ -408,7 +462,7 @@ class Model:
         plt.grid(True)
         plt.show()
 
-    def plot_roc_curves(self, model_name, curve_type='train'):
+    def plot_roc_curves(self, model_name, curve_type='test'):
         if 'roc_data' not in self.models[model_name]:
             print(f"ROC curve data not available for {model_name}.")
             return

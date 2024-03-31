@@ -211,10 +211,10 @@ class HerderModel(BaseEstimator, ClassifierMixin):
         }
 
         # Print and store metrics including standard deviations
-        # print(f"Metrics for {model_name} Model:")
-        # for metric, value in mean_metrics.items():
-            # std_metric = std_metrics.get(metric + " STD", 0)  # Default to 0 if not found
-            # print(f"{metric}: {value:.4f} (std: {std_metric:.4f})")
+        print(f"Metrics for {model_name} Model:")
+        for metric, value in mean_metrics.items():
+            std_metric = std_metrics.get(metric + " STD", 0)  # Default to 0 if not found
+            print(f"{metric}: {value:.4f} (std: {std_metric:.4f})")
 
         self.model_metrics[model_name] = {
             'metrics': mean_metrics,
