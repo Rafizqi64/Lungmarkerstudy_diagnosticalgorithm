@@ -39,12 +39,12 @@ features_herbert = [
             'cat__PET-CT Findings_Faint',
             'cat__PET-CT Findings_Intense',
             'cat__PET-CT Findings_Moderate',
-            # 'cat__PET-CT Findings_No FDG avidity',
-            # 'remainder__Current/Former smoker',
-            # 'remainder__Previous History of Extra-thoracic Cancer',
-            # 'remainder__Nodule size (1-30 mm)',
-            # 'remainder__Nodule Upper Lobe',
-            # 'remainder__Spiculation',
+            'cat__PET-CT Findings_No FDG avidity',
+            'remainder__Current/Former smoker',
+            'remainder__Previous History of Extra-thoracic Cancer',
+            'remainder__Nodule size (1-30 mm)',
+            'remainder__Nodule Upper Lobe',
+            'remainder__Spiculation',
         ]
 
 features_lbx = [
@@ -89,10 +89,10 @@ features_brock_and_herder = list(set(features_brock + features_herbert))
 model_manager.reset_models()
 
 # Add models to the manager
-# model_manager.add_model("brock", features_brock)
+model_manager.add_model("brock", features_brock)
 # model_manager.add_model("herder", features_herder)
-model_manager.add_model("herbert", features_herbert, use_mcp_scores=True)
-# model_manager.add_model("lbx", features_lbx, CV200x=False)
+model_manager.add_model("herder", features_herbert, use_mcp_scores=False)
+model_manager.add_model("lbx", features_lbx, CV200x=False)
 # model_manager.add_model("lc", features_lc)
 # model_manager.add_model("nsclc", features_nsclc)
 
@@ -100,11 +100,11 @@ model_manager.add_model("herbert", features_herbert, use_mcp_scores=True)
 # model_manager.apply_tree_based_feature_selection("brock")
 # model_manager.apply_tree_based_feature_selection("herder")
 # model_manager.apply_tree_based_feature_selection("herbert")
-# model_manager.apply_tree_based_feature_selection("lbx")
+model_manager.apply_tree_based_feature_selection("lbx")
 
-# model_manager.apply_rfe_feature_selection("brock")
+model_manager.apply_rfe_feature_selection("brock")
 # model_manager.apply_rfe_feature_selection("herder")
-# model_manager.apply_rfe_feature_selection("herbert")
+model_manager.apply_rfe_feature_selection("herder")
 # model_manager.apply_rfe_feature_selection("lbx")
 
 # model_manager.apply_logistic_l1_feature_selection("brock")
@@ -130,21 +130,23 @@ trained_models = model_manager.train_models()
 #     INDIVIDUAL MODELS     #
 #===========================#
 
-# print("\nBrock Formula")
-# print(model_manager.get_logistic_regression_formula('brock'))
+print("\nBrock Formula")
+print(model_manager.get_logistic_regression_formula('brock'))
 # model_manager.plot_roc_curves('brock')
 # model_manager.generate_shap_plot('brock')
 # model_manager.plot_prediction_histograms('brock')
+model_manager.plot_confusion_matrices("brock")
 
 # model_manager.plot_roc_curves('herder')
 # model_manager.generate_shap_plot('herder')
 # model_manager.plot_prediction_histograms('herder')
 
-# print("\nHerbert Formula")
-# print(model_manager.get_logistic_regression_formula('herbert'))
-model_manager.plot_roc_curves('herbert')
-model_manager.generate_shap_plot('herbert')
-# model_manager.plot_prediction_histograms('herbert')
+print("\nHerbert Formula")
+print(model_manager.get_logistic_regression_formula('herbert'))
+# model_manager.plot_roc_curves('herder')
+# model_manager.generate_shap_plot('herder'
+# model_manager.plot_prediction_histograms('herder')
+model_manager.plot_confusion_matrices("herder")
 
 # print("\nlc Formula")
 # print(model_manager.get_logistic_regression_formula('lc'))
@@ -158,12 +160,12 @@ model_manager.generate_shap_plot('herbert')
 # model_manager.generate_shap_plot('nsclc')
 # model_manager.plot_prediction_histograms('nsclc')
 
-# print("\nlbx Formula")
-# print(model_manager.get_logistic_regression_formula('lbx'))
-# model_manager.plot_roc_curves('lbx')
-# model_manager.generate_shap_plot('lbx')
-# model_manager.plot_prediction_histograms('lbx')
-
+print("\nlbx Formula")
+print(model_manager.get_logistic_regression_formula('lbx'))
+model_manager.plot_roc_curves('lbx')
+model_manager.generate_shap_plot('lbx')
+model_manager.plot_prediction_histograms('lbx')
+model_manager.plot_confusion_matrices("lbx")
 
 #===========================#
 #      MIXED ENSEMBLE       #

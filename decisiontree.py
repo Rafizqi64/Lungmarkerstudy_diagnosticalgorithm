@@ -1,5 +1,8 @@
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import seaborn as sns
+from sklearn.metrics import confusion_matrix
 
 
 class DecisionTree:
@@ -51,7 +54,7 @@ class DecisionTree:
         print(detailed_outcomes)
         # Return the detailed outcomes dataframe and the outcome counts
         return detailed_outcomes, outcome_counts
- 
+
     def apply_guideline_logic(self):
         """Apply the guideline logic to each patient and compare with diagnosis."""
         outcomes = []  # to store the outcome for each patient
@@ -92,6 +95,39 @@ class DecisionTree:
         # Return the detailed outcomes dataframe and the outcome counts
         return detailed_outcomes, outcome_counts
 
+    def plot_confusion_matrices(self):
+        outcome_mapping = {
+            'Discharge': 0,
+            'CT surveillance': 0,
+            'Consider image-guided biopsy': 1,
+            'Consider excision or non-surgical treatment': 1,
+        }
+        self.df['Predicted'] = self.df['Guideline Outcome'].map(outcome_mapping)
+
+        # True labels, already encoded as 0 for 'No LC' and 1 for 'NSCLC'
+        y_true = self.df['Diagnosis_Encoded']
+
+        # Predicted labels, as mapped above
+        y_pred = self.df['Predicted']
+
+        # Compute confusion matrix
+        cm = confusion_matrix(y_true, y_pred)
+
+        # Extracting TN, FP, FN, TP
+        TN, FP, FN, TP = cm.ravel()
+
+        # Calculating sensitivity and specificity
+        sensitivity = TP / (TP + FN)
+        specificity = TN / (TN + FP)
+
+        # Plotting the confusion matrix
+        plt.figure(figsize=(10, 7))
+        sns.heatmap(cm, annot=True, fmt="d", cmap='Blues', xticklabels=['CT surveillance', 'Treatment'], yticklabels=['No LC', 'NSCLC'])
+        plt.xlabel('Predicted outcomes')
+        plt.ylabel('True labels')
+        plt.title(f'Confusion Matrix for BTS Guideline Outcomes\nSensitivity: {sensitivity:.2f}, Specificity: {specificity:.2f}')
+        plt.show()
+
     def apply_guideline_compare(self):
         """Apply the guideline logic to each patient for Brock and Herder models separately and compare with diagnosis."""
         brock_outcomes = []  # to store the outcome for each patient based on the Brock model
@@ -105,9 +141,9 @@ class DecisionTree:
             if nodule_size < 8:
                 brock_outcome = 'CT surveillance'
             elif nodule_size >= 8:
-                if brock_score < 50:
+                if brock_score < 10:
                     brock_outcome = 'CT surveillance'
-                elif 50 <= brock_score < 70:
+                elif 10 <= brock_score < 70:
                     brock_outcome = 'Consider image-guided biopsy'
                 else:
                     brock_outcome = 'Consider excision or non-surgical treatment'
@@ -119,9 +155,9 @@ class DecisionTree:
             if nodule_size < 8:
                 herder_outcome = 'CT surveillance'
             elif nodule_size >= 8:
-                if herder_score < 50:
+                if herder_score < 10:
                     herder_outcome = 'CT surveillance'
-                elif 50 <= herder_score < 70:
+                elif 10 <= herder_score < 70:
                     herder_outcome = 'Consider image-guided biopsy'
                 else:
                     herder_outcome = 'Consider excision or non-surgical treatment'
@@ -151,10 +187,10 @@ class DecisionTree:
 
         # Return the detailed outcomes dataframes and the outcome counts
         return (brock_detailed_outcomes, brock_outcome_counts), (herder_detailed_outcomes, herder_outcome_counts)
- 
+
 filepath = 'Dataset BEP Rafi.xlsx'  # Update with your actual file path
 tree = DecisionTree(filepath)
-results = tree.apply_guideline_logic_LBx()
+results = tree.apply_guideline_logic()
 brock_results, herder_results = tree.apply_guideline_compare()
-
+tree.plot_confusion_matrices()
 #results2 = tree.apply_guideline_logic()

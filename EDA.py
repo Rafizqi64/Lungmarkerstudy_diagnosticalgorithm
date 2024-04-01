@@ -20,11 +20,11 @@ class ModelEDA:
         self.df['Diagnosis_Encoded'] = np.where(self.df['Diagnose'] == 'No LC', 0, 1)
         self.models = ['Brock score (%)', 'Herder score (%)', '% LC in TM-model', '% NSCLC in TM-model']
         self.numerical_vars = ['Nodule size (1-30 mm)', 'CA125', 'CA15.3', 'CEA', 'CYFRA 21-1', 'HE4', 'NSE', 'NSE corrected for H-index', 'proGRP', 'SCCA']
-        self.categorical_vars = ['Current/Former smoker',
-                        'Family History of LC', 'Emphysema',
-                        'Nodule Type', 'Nodule Upper Lobe', 'Nodule Count',
-                        'Spiculation', 'PET-CT Findings']
-        # self.categorical_vars = ['Current/Former smoker', 'Emphysema', 'Spiculation', 'PET-CT Findings']
+        # self.categorical_vars = ['Current/Former smoker',
+                        # 'Family History of LC', 'Emphysema',
+                        # 'Nodule Type', 'Nodule Upper Lobe', 'Nodule Count',
+                        # 'Spiculation', 'PET-CT Findings']
+        self.categorical_vars = ['Current/Former smoker', 'Emphysema', 'Spiculation', 'PET-CT Findings']
 
     def preprocess_data(self):
         """Preprocess the dataset."""
@@ -265,23 +265,26 @@ class ModelEDA:
                 sns.kdeplot(x='Nodule size (1-30 mm)', y=model, data=valid_data, fill=True,
                             levels=5, alpha=0.7, color='grey', ax=ax)
 
-                # Define marker styles based on 'Spiculation' values
-                # You can define more markers if you have more categories
+                # Define marker styles for categories
                 marker_styles = ['o', 's', 'D', '^', 'v', '<', '>', 'p', '*', 'h', 'H', '+', 'x', 'X', 'd', '|', '_']
 
-                # Assign a unique marker to each value of the categorical variable
-                unique_values = valid_data[var].unique()
-                markers = {value: marker for value, marker in zip(unique_values, marker_styles)}
+                # Map "ja" and "nee" to "yes" and "no"
+                value_mapping = {'ja': 'yes', 'nee': 'no'}
+                valid_data[var] = valid_data[var].map(value_mapping).fillna(valid_data[var])
+                unique_values_mapped = valid_data[var].unique()
 
-                # Scatter plot with different shapes for 'Spiculation'
+                # Ensure markers dictionary uses mapped values
+                markers = {value: marker for value, marker in zip(unique_values_mapped, marker_styles)}
+
+                # Scatter plot with mapped category values
                 sns.scatterplot(x='Nodule size (1-30 mm)', y=model, data=valid_data,
                                 style=var, hue=var, markers=markers, edgecolor="none",
-                                legend='full', s=100, ax=ax)  # Increased s for better visibility
+                                legend='full', s=100, ax=ax)
 
                 # Calculate Spearman correlation coefficient
                 rho, p_value = spearmanr(valid_data['Nodule size (1-30 mm)'], valid_data[model])
 
-                # Annotate the plot with Spearman rho value
+                # Annotate plot with Spearman rho value
                 plt.annotate(f"Spearman ρ = {rho:.2f} (p = {p_value:.3f})", xy=(0.5, 0.95),
                              xycoords='axes fraction', ha='center', fontsize=10,
                              backgroundcolor='white')
@@ -290,7 +293,7 @@ class ModelEDA:
                 plt.xlabel('Nodule size (1-30 mm)')
                 plt.ylabel(f'{model} Score')
                 plt.legend(title=var)
-                plt.tight_layout()  # Adjust the layout to make room for the legend
+                plt.tight_layout()
                 plt.show()
 
     def plot_model_score_vs_nodule_size_by_diagnosis(self):
@@ -582,16 +585,16 @@ eda.display_summary_statistics()
 #eda.plot_stadium_frequency()
 # eda.plot_node_size_distributions()
 # eda.plot_numerical_vars_distribution()
-#eda.plot_model_score_vs_nodule_size()
+eda.plot_model_score_vs_nodule_size()
 #eda.plot_model_score_vs_nodule_size_by_diagnosis()
-#eda.plot_confusion_matrices()
+# eda.plot_confusion_matrices()
 # eda.calculate_best_sensitivity_specificity()
 # eda.test_significance_of_categorical_variables_with_model()
 # eda.test_protein_marker_significance_with_model()
-eda.test_significance_of_categorical_variables_with_diagnosis()
-eda.test_numerical_variable_significance_with_diagnosis()
-vif_results=eda.calculate_vif_for_numerical_vars()
-print(vif_results)
+# eda.test_significance_of_categorical_variables_with_diagnosis()
+# eda.test_numerical_variable_significance_with_diagnosis()
+# vif_results=eda.calculate_vif_for_numerical_vars()
+# print(vif_results)
 
 #=========================#
 # SIMPLE MODEL EVALUATION #
