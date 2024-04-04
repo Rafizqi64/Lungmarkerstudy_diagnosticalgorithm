@@ -14,47 +14,6 @@ class DecisionTree:
         self.models = ['Brock score (%)', 'Herder score (%)', '% LC in TM-model', '% NSCLC in TM-model']
         self.protein_markers = ['CA125', 'CA15.3', 'CEA', 'CYFRA 21-1', 'HE4', 'NSE', 'NSE corrected for H-index', 'proGRP', 'SCCA']
         self.categorical_vars = ['Current/Former smoker', 'Emphysema', 'Spiculation', 'PET-CT Findings']
-
-    def apply_guideline_logic_LBx(self):
-        """Apply the guideline logic to each patient and compare with diagnosis."""
-        outcomes = []  # to store the outcome for each patient
-
-        for index, row in self.df.iterrows():
-            # Initialize variables for LBx scores
-            lc_score = row['% LC in TM-model']
-            nsclc_score = row['% NSCLC in TM-model']
-            if row['Nodule size (1-30 mm)'] < 5:
-                outcome = 'Discharge'
-            elif row['Nodule size (1-30 mm)'] < 8:
-                outcome = 'CT surveillance'
-            elif row['Nodule size (1-30 mm)'] >= 8:
-                if lc_score < 50:
-                    outcome = 'CT surveillance'
-                else:
-                    if nsclc_score < 50:
-                        outcome = 'CT surveillance'
-                    elif 50 <= nsclc_score < 70:
-                        outcome = 'Consider image-guided biopsy'
-                    else:
-                        outcome = 'Consider excision or non-surgical treatment'
-            else:
-                outcome = 'CT surveillance or other as per individual risk and preference'
-
-            # Append the outcome to the outcomes list
-            outcomes.append(outcome)
-
-        # Add the outcomes to the DataFrame
-        self.df['Guideline Outcome'] = outcomes
-
-        # Generate a detailed outcomes dataframe with counts for each combination of outcome and diagnosis
-        detailed_outcomes = self.df.groupby(['Guideline Outcome', 'Diagnose']).size().unstack(fill_value=0)
-
-        # Calculate total counts for each outcome
-        outcome_counts = self.df['Guideline Outcome'].value_counts()
-        print(detailed_outcomes)
-        # Return the detailed outcomes dataframe and the outcome counts
-        return detailed_outcomes, outcome_counts
-
     def apply_guideline_logic(self):
         """Apply the guideline logic to each patient and compare with diagnosis."""
         outcomes = []  # to store the outcome for each patient
@@ -94,8 +53,7 @@ class DecisionTree:
         print(detailed_outcomes)
         # Return the detailed outcomes dataframe and the outcome counts
         return detailed_outcomes, outcome_counts
-
-    def plot_confusion_matrices(self):
+    def plot_confusion_matrix(self):
         outcome_mapping = {
             'Discharge': 0,
             'CT surveillance': 0,
@@ -119,6 +77,19 @@ class DecisionTree:
         # Calculating sensitivity and specificity
         sensitivity = TP / (TP + FN)
         specificity = TN / (TN + FP)
+
+        # Calculating metrics
+        accuracy = (TP + TN) / (TP + TN + FP + FN)
+        precision = TP / (TP + FP)
+        recall = sensitivity  # Recall is the same as sensitivity
+        f1_score = 2 * (precision * recall) / (precision + recall)
+
+        # Print the metrics
+        print(f"Accuracy: {accuracy:.2f}")
+        print(f"Precision: {precision:.2f}")
+        print(f"Recall/Sensitivity: {recall:.2f}")
+        print(f"F1-Score: {f1_score:.2f}")
+        print(f"Specificity: {specificity:.2f}")
 
         # Plotting the confusion matrix
         plt.figure(figsize=(10, 7))
@@ -191,6 +162,6 @@ class DecisionTree:
 filepath = 'Dataset BEP Rafi.xlsx'  # Update with your actual file path
 tree = DecisionTree(filepath)
 results = tree.apply_guideline_logic()
-brock_results, herder_results = tree.apply_guideline_compare()
-tree.plot_confusion_matrices()
+# brock_results, herder_results = tree.apply_guideline_compare()
+tree.plot_confusion_matrix()
 #results2 = tree.apply_guideline_logic()

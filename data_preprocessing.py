@@ -14,7 +14,7 @@ class DataPreprocessor:
         self.y = None
         self.feature_names = []
 
-    def load_and_transform_data(self):
+    def load_and_transform_data(self, model_name=None):
         self.df = pd.read_excel(self.filepath)
         # Exclude specified columns
         columns_to_exclude = ['IDNR', 'Stadium', 'ctDNA mutatie']
@@ -41,18 +41,19 @@ class DataPreprocessor:
         # Apply standard scaling to the numerical features
         self.df[numerical_features] = scaler.fit_transform(self.df[numerical_features])
 
-        # Apply Brock model transformations for Nodule size and count
-        if 'Nodule size' in self.df.columns:
-            self.df['Nodule size'] = (self.df['Nodule size'] / 10) - 0.5 - 1.58113883
-        if 'Nodule count' in self.df.columns:
-            self.df['Nodule count'] = self.df['Nodule count'] - 4
+        # Apply Brock model transformations for Nodule size and count, if model_name is 'brock'
+        if model_name == 'brock':
+            if 'Nodule size' in self.df.columns:
+                self.df['Nodule size'] = (self.df['Nodule size'] / 10) - 0.5 - 1.58113883
+            if 'Nodule count' in self.df.columns:
+                self.df['Nodule count'] = self.df['Nodule count'] - 4
 
-        # preprocess dataset
+        # Preprocess dataset
         self.preprocessor = ColumnTransformer(transformers=[
             ('cat', OneHotEncoder(handle_unknown='ignore'), categorical_features)
         ], remainder='passthrough')
 
-        # separate features and target
+        # Separate features and target
         X = self.df.drop(self.target, axis=1)
         self.y = self.df[self.target]
 

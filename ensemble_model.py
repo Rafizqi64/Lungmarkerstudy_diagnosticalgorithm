@@ -295,8 +295,8 @@ class score_based_ensemble:
         thresholds = []
 
         # Initialize dictionaries to store scores for pre- and post-threshold evaluations
-        pre_threshold_scores = {metric: [] for metric in ['accuracy', 'precision', 'recall', 'f1', 'roc_auc']}
-        post_threshold_scores = {metric: [] for metric in ['accuracy', 'precision', 'recall', 'f1', 'roc_auc']}
+        pre_threshold_scores = {metric: [] for metric in ['accuracy', 'precision', 'recall', 'f1', 'roc_auc', 'specificity']}
+        post_threshold_scores = {metric: [] for metric in ['accuracy', 'precision', 'recall', 'f1', 'roc_auc', 'specificity']}
 
         # To separately store train and test ROC AUC scores
         train_roc_auc_scores = []
@@ -339,15 +339,15 @@ class score_based_ensemble:
         self.post_cv_scores = {metric: np.mean(values) for metric, values in post_threshold_scores.items()}
         self.train_roc_auc = np.mean(train_roc_auc_scores)
         self.test_roc_auc = np.mean(test_roc_auc_scores)
-        print(self.train_roc_auc)
-        print(self.test_roc_auc)
+        # print(self.train_roc_auc)
+        # print(self.test_roc_auc)
 
         self.pre_cv_std = {metric: np.std(values) for metric, values in pre_threshold_scores.items()}
         self.post_cv_std = {metric: np.std(values) for metric, values in post_threshold_scores.items()}
         self.train_roc_auc_std = np.std(train_roc_auc_scores)
         self.test_roc_auc_std = np.std(test_roc_auc_scores)
-        print(self.train_roc_auc_std)
-        print(self.test_roc_auc_std)
+        # print(self.train_roc_auc_std)
+        # print(self.test_roc_auc_std)
 
     def _calculate_metric(self, metric, y_true, y_pred, y_proba):
         if metric == 'accuracy':
@@ -360,6 +360,9 @@ class score_based_ensemble:
             return f1_score(y_true, y_pred)
         elif metric == 'roc_auc':
             return roc_auc_score(y_true, y_proba)
+        elif metric == 'specificity':
+            tn, fp, _, _ = confusion_matrix(y_true, y_pred).ravel()
+            return tn / (tn + fp) if (tn + fp) > 0 else 0
         else:
             return None
 

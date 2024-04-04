@@ -19,16 +19,36 @@ class ModelEDA:
         self.df = pd.read_excel(filepath)
         self.df['Diagnosis_Encoded'] = np.where(self.df['Diagnose'] == 'No LC', 0, 1)
         self.models = ['Brock score (%)', 'Herder score (%)', '% LC in TM-model', '% NSCLC in TM-model']
-        self.numerical_vars = ['Nodule size (1-30 mm)', 'CA125', 'CA15.3', 'CEA', 'CYFRA 21-1', 'HE4', 'NSE', 'NSE corrected for H-index', 'proGRP', 'SCCA']
-        # self.categorical_vars = ['Current/Former smoker',
-                        # 'Family History of LC', 'Emphysema',
-                        # 'Nodule Type', 'Nodule Upper Lobe', 'Nodule Count',
-                        # 'Spiculation', 'PET-CT Findings']
-        self.categorical_vars = ['Current/Former smoker', 'Emphysema', 'Spiculation', 'PET-CT Findings']
+        self.numerical_vars = ['Nodule size (1-30 mm)', 'Nodule Count', 'CA125', 'CA15.3', 'CEA', 'CYFRA 21-1', 'HE4', 'NSE', 'NSE corrected for H-index', 'proGRP', 'SCCA']
+        self.categorical_vars = ['Current/Former smoker',
+                        'Family History of LC', 'Emphysema',
+                        'Nodule Type', 'Nodule Upper Lobe',
+                        'Spiculation', 'PET-CT Findings']
+        # self.categorical_vars = ['Current/Former smoker', 'Emphysema', 'PET-CT Findings']
 
-    def preprocess_data(self):
+    def preprocess_data_for_table(self):
         """Preprocess the dataset."""
         binary_map = {'Nee': 0, 'Ja': 1}
+        self.df['Current/Former smoker'] = self.df['Current/Former smoker'].replace(binary_map)
+        self.df['Family History of LC'] = self.df['Family History of LC'].replace(binary_map)
+        self.df['Emphysema'] = self.df['Emphysema'].replace(binary_map)
+        self.df['Nodule Upper Lobe'] = self.df['Nodule Upper Lobe'].replace(binary_map)
+        self.df['Spiculation'] = self.df['Spiculation'].replace(binary_map)
+        one_hot_vars = []
+        for var in ['Nodule Type', 'PET-CT Findings']:
+            dummies = pd.get_dummies(self.df[var], prefix=var)
+            self.df.drop(var, axis=1, inplace=True)  # Remove the original column
+            self.df = pd.concat([self.df, dummies], axis=1)
+            # Update the categorical_vars list with the new one-hot encoded variables
+            one_hot_vars.extend(dummies.columns.tolist())
+
+        # Update categorical_vars to include new one-hot encoded columns and exclude the original columns
+        self.categorical_vars = [var for var in self.categorical_vars if var not in ['Nodule Type', 'PET-CT Findings']] + one_hot_vars
+        return self.df
+
+    def preprocess_data(self):
+        binary_map = {'Nee': 0, 'Ja': 1}
+        self.df['Current/Former smoker'] = self.df['Current/Former smoker'].replace(binary_map)
         self.df['Family History of LC'] = self.df['Family History of LC'].replace(binary_map)
         self.df['Emphysema'] = self.df['Emphysema'].replace(binary_map)
         self.df['Nodule Upper Lobe'] = self.df['Nodule Upper Lobe'].replace(binary_map)
@@ -39,26 +59,98 @@ class ModelEDA:
         self.df = pd.concat([self.df, nodule_types], axis=1)
         return self.df
 
+    def calculate_distribution(self, var):
+        # Check if the variable is originally binary but represented numerically (1/0)
+        if var in ['Current/Former smoker', 'Family History of LC', 'Emphysema', 'Nodule Upper Lobe', 'Spiculation']:
+            # For original binary variables, calculate the distribution as percentage for both 1 (Yes) and 0 (No) values
+            distribution = self.df.groupby('Diagnose')[var].value_counts(normalize=True).unstack(fill_value=0) * 100
+        elif var.startswith('Nodule Type_') or var.startswith('PET-CT Findings_'):
+            # For one-hot encoded binary variables, directly calculate the mean as the distribution
+            distribution = self.df.groupby('Diagnose')[var].mean() * 100
+        else:
+            # For numerical variables, calculate mean and standard deviation for each diagnosis group
+            distribution = self.df.groupby('Diagnose')[var].agg(['mean', 'std'])
+        return distribution
+
+    def generate_summary_table(self):
+        self.preprocess_data_for_table()
+        summary_rows = []
+
+        for var in self.categorical_vars + self.numerical_vars:
+            distribution = self.calculate_distribution(var)
+
+            # Differentiate between distribution types
+            if var in ['Current/Former smoker', 'Family History of LC', 'Emphysema', 'Nodule Upper Lobe', 'Spiculation']:
+                # Original binary variables
+                no_lc_dist = f"No: {distribution.loc['No LC', 0]:.2f}%, Yes: {distribution.loc['No LC', 1]:.2f}%"
+                nsclc_dist = f"No: {distribution.loc['NSCLC', 0]:.2f}%, Yes: {distribution.loc['NSCLC', 1]:.2f}%"
+            elif isinstance(distribution, pd.DataFrame) and 'mean' in distribution.columns:
+                # Numerical variables
+                no_lc_dist = f"Mean: {distribution.loc['No LC', 'mean']:.2f}, Std: {distribution.loc['No LC', 'std']:.2f}"
+                nsclc_dist = f"Mean: {distribution.loc['NSCLC', 'mean']:.2f}, Std: {distribution.loc['NSCLC', 'std']:.2f}"
+            else:
+                # One-hot encoded binary variables
+                no_lc_dist = f"{distribution.loc['No LC']:.2f}%"
+                nsclc_dist = f"{distribution.loc['NSCLC']:.2f}%"
+
+            p_val, test_used = self.perform_significance_testing(var, var not in self.categorical_vars)
+            significance = "Significant" if p_val < 0.05 else "Not significant"
+
+            summary_rows.append({
+                'Variable': var,
+                'P-value': p_val,
+                'Significance': significance,
+                'Test Used': test_used,
+                'Distribution No LC': no_lc_dist,
+                'Distribution NSCLC': nsclc_dist
+            })
+
+        summary_table = pd.DataFrame(summary_rows)
+        print(summary_table)
+        return summary_table
+
+    def perform_significance_testing(self, var, is_numerical):
+        if is_numerical:
+            data = self.df.dropna(subset=[var, 'Diagnosis_Encoded'])
+            X = sm.add_constant(data[var])
+            y = data['Diagnosis_Encoded']
+            try:
+                model = sm.Logit(y, X).fit(disp=0)
+                p_val = model.pvalues[var]
+                test_used = "Logistic Regression"
+            except Exception:
+                p_val = np.nan  # Ensure a value is assigned even in case of an error
+                test_used = "Error in Logistic Regression"
+        else:
+            contingency_table = pd.crosstab(self.df['Diagnose'], self.df[var])
+            if contingency_table.shape[1] == 2:
+                _, p_val = fisher_exact(contingency_table)
+                test_used = "Fisher's Exact"
+            else:
+                _, p_val, _, _ = chi2_contingency(contingency_table)
+                test_used = "Chi-Square"
+        return p_val, test_used  # Make sure to return a tuple in all cases
+
     def evaluate_simple_model_scores(self, true_label_col, score_col, threshold=50, num_folds=5):
         """
-        Evaluates the Brock model scores with specified metrics using Stratified K-Fold cross-validation.
+        Evaluates the model scores with specified metrics using Stratified K-Fold cross-validation.
 
         Parameters:
-        - df: DataFrame containing the dataset with true labels and Brock scores.
+        - df: DataFrame containing the dataset with true labels and scores.
         - true_label_col: The name of the column containing the true binary labels.
-        - score_col: The name of the column containing the Brock scores.
-        - threshold: The threshold to convert scores into binary predictions (default is 10%).
+        - score_col: The name of the column containing the scores.
+        - threshold: The threshold to convert scores into binary predictions (default is 50).
         - num_folds: Number of folds for Stratified K-Fold cross-validation (default is 5).
 
         Returns:
-        - A dictionary with average values of Accuracy, Precision, Recall, F1 Score, and ROC AUC.
+        - A dictionary with average values and standard deviations of Accuracy, Precision, Recall, F1 Score, ROC AUC, and Specificity.
         """
         y = self.df[true_label_col].values
         scores = self.df[score_col].values
 
         skf = StratifiedKFold(n_splits=num_folds, shuffle=True, random_state=42)
 
-        metrics = {'accuracy': [], 'precision': [], 'recall': [], 'f1': [], 'roc_auc': []}
+        metrics = {'accuracy': [], 'precision': [], 'recall': [], 'f1': [], 'roc_auc': [], 'specificity': []}
 
         for train_idx, test_idx in skf.split(np.zeros(len(y)), y):  # Using dummy X since it's not used
             y_test = y[test_idx]
@@ -66,6 +158,7 @@ class ModelEDA:
 
             # Convert scores to binary predictions based on the threshold
             predictions = (scores_test >= threshold).astype(int)
+
             # Calculate metrics for this fold
             metrics['accuracy'].append(accuracy_score(y_test, predictions))
             metrics['precision'].append(precision_score(y_test, predictions))
@@ -73,9 +166,16 @@ class ModelEDA:
             metrics['f1'].append(f1_score(y_test, predictions))
             metrics['roc_auc'].append(roc_auc_score(y_test, scores_test))
 
-        # Calculate the average of each metric across all folds
-        avg_metrics = {metric: np.mean(scores) for metric, scores in metrics.items()}
+            # Calculate specificity for this fold
+            tn, fp, _, _ = confusion_matrix(y_test, predictions).ravel()
+            specificity = tn / (tn + fp)
+            metrics['specificity'].append(specificity)
+
+        # Calculate the average and standard deviation of each metric across all folds
+        avg_metrics = {metric: np.mean(values) for metric, values in metrics.items()}
         std_metrics = {metric: np.std(values) for metric, values in metrics.items()}
+
+        # Combine average and standard deviation in the output dictionary
         metrics_output = {metric: {'average': avg, 'std_dev': std_metrics[metric]} for metric, avg in avg_metrics.items()}
 
         return metrics_output
@@ -252,17 +352,17 @@ class ModelEDA:
             plt.ylabel('Frequency')
             plt.show()
 
-    def plot_model_score_vs_nodule_size(self):
+    def plot_model_score_vs_model_score(self, model_name):
         """Generate scatter plots overlayed with density plots for each model against nodule size, differentiated by categorical variable using shapes."""
         for model in self.models:
             for var in self.categorical_vars:
                 fig, ax = plt.subplots(figsize=(10, 6))
 
                 # Use valid_data which has dropped NaN values for the current model and categorical variables
-                valid_data = self.df.dropna(subset=['Nodule size (1-30 mm)', model, var])
+                valid_data = self.df.dropna(subset=[model_name, model, var])
 
                 # KDE plot overlay
-                sns.kdeplot(x='Nodule size (1-30 mm)', y=model, data=valid_data, fill=True,
+                sns.kdeplot(x=model_name, y=model, data=valid_data, fill=True,
                             levels=5, alpha=0.7, color='grey', ax=ax)
 
                 # Define marker styles for categories
@@ -277,26 +377,26 @@ class ModelEDA:
                 markers = {value: marker for value, marker in zip(unique_values_mapped, marker_styles)}
 
                 # Scatter plot with mapped category values
-                sns.scatterplot(x='Nodule size (1-30 mm)', y=model, data=valid_data,
+                sns.scatterplot(x=model_name, y=model, data=valid_data,
                                 style=var, hue=var, markers=markers, edgecolor="none",
                                 legend='full', s=100, ax=ax)
 
                 # Calculate Spearman correlation coefficient
-                rho, p_value = spearmanr(valid_data['Nodule size (1-30 mm)'], valid_data[model])
+                # rho, p_value = spearmanr(valid_data[model_name], valid_data[model])
 
                 # Annotate plot with Spearman rho value
-                plt.annotate(f"Spearman ρ = {rho:.2f} (p = {p_value:.3f})", xy=(0.5, 0.95),
-                             xycoords='axes fraction', ha='center', fontsize=10,
-                             backgroundcolor='white')
+                # plt.annotate(f"Spearman ρ = {rho:.2f} (p = {p_value:.3f})", xy=(0.5, 0.95),
+                             # xycoords='axes fraction', ha='center', fontsize=10,
+                             # backgroundcolor='white')
 
-                plt.title(f'Scatter and Density Plot of {model} vs. Nodule Size by {var}')
-                plt.xlabel('Nodule size (1-30 mm)')
+                plt.title(f'Scatter and Density Plot of {model} vs. {model_name} by {var}', fontsize=10)
+                plt.xlabel(model_name)
                 plt.ylabel(f'{model} Score')
                 plt.legend(title=var)
                 plt.tight_layout()
                 plt.show()
 
-    def plot_model_score_vs_nodule_size_by_diagnosis(self):
+    def plot_model_score_vs_model_score_by_diagnosis(self, model_name):
         """Generate scatter plots overlayed with density plots for each model against nodule size, differentiated by diagnosis."""
         for model in self.models:
             fig, ax = plt.subplots(figsize=(10, 6))
@@ -305,25 +405,25 @@ class ModelEDA:
             valid_data = self.df.dropna(subset=['Nodule size (1-30 mm)', model, 'Diagnose'])
 
             # KDE plot overlay
-            sns.kdeplot(x='Nodule size (1-30 mm)', y=model, data=valid_data, fill=True,
+            sns.kdeplot(x=model_name, y=model, data=valid_data, fill=True,
                         levels=5, alpha=0.7, color='grey', ax=ax)
 
             # Scatter plot with points colored by 'Diagnose'
-            sns.scatterplot(x='Nodule size (1-30 mm)', y=model, data=valid_data,
+            sns.scatterplot(x=model_name, y=model, data=valid_data,
                             hue='Diagnose', style='Diagnose',
                             markers={'No LC': 'o', 'NSCLC': 's'},  # Define markers for each diagnosis
                             edgecolor="none", s=100, ax=ax)  # Increased s for better visibility
 
             # Calculate Spearman correlation coefficient
-            rho, p_value = spearmanr(valid_data['Nodule size (1-30 mm)'], valid_data[model])
+            # rho, p_value = spearmanr(valid_data['Nodule size (1-30 mm)'], valid_data[model])
 
             # Annotate the plot with Spearman rho value
-            plt.annotate(f"Spearman ρ = {rho:.2f} (p = {p_value:.3f})", xy=(0.5, 0.95),
-                         xycoords='axes fraction', ha='center', fontsize=10,
-                         backgroundcolor='white')
+            # plt.annotate(f"Spearman ρ = {rho:.2f} (p = {p_value:.3f})", xy=(0.5, 0.95),
+                         # xycoords='axes fraction', ha='center', fontsize=10,
+                         # backgroundcolor='white')
 
-            plt.title(f'Scatter and Density Plot of {model} vs. Nodule Size by Diagnosis')
-            plt.xlabel('Nodule size (1-30 mm)')
+            plt.title(f'Scatter and Density Plot of {model} vs. {model_name}')
+            plt.xlabel(model_name)
             plt.ylabel(f'{model} Score')
             plt.legend(title='Diagnose')
             plt.tight_layout()  # Adjust the layout to make room for the legend
@@ -458,7 +558,6 @@ class ModelEDA:
             }
         print(optimal_results)
         return optimal_results
-
     def test_numerical_variable_significance_with_diagnosis(self):
         """Test the association between protein markers and binary diagnosis using logistic regression."""
         print("Testing association between protein markers and diagnosis:\n" + "="*60)
@@ -578,15 +677,16 @@ class ModelEDA:
 filepath = 'Dataset BEP Rafi.xlsx'  # Update with your actual file path
 eda = ModelEDA(filepath)
 #eda.display_dataset_info()
-eda.display_summary_statistics()
+# eda.display_summary_statistics()
 #eda.plot_distributions_model_score()
 #eda.plot_categorical_frequency_with_diagnosis()
 #eda.plot_relationship_with_stadium()
 #eda.plot_stadium_frequency()
 # eda.plot_node_size_distributions()
 # eda.plot_numerical_vars_distribution()
-eda.plot_model_score_vs_nodule_size()
-#eda.plot_model_score_vs_nodule_size_by_diagnosis()
+eda.plot_model_score_vs_model_score('Herder score (%)')
+eda.plot_model_score_vs_model_score_by_diagnosis('Herder score (%)')
+# eda.generate_summary_table()
 # eda.plot_confusion_matrices()
 # eda.calculate_best_sensitivity_specificity()
 # eda.test_significance_of_categorical_variables_with_model()
@@ -602,9 +702,9 @@ eda.plot_model_score_vs_nodule_size()
 
 # Preprocess the data
 # eda.preprocess_data()
-# model_score = '% NSCLC in TM-model'
+# model_score = 'Herder score (%)'
 # target_variable = 'Diagnosis_Encoded'
-# threshold = 50
+# threshold = 10
 # avg_metrics = eda.evaluate_simple_model_scores(target_variable, model_score, threshold)
 # print(avg_metrics)
 # eda.plot_prediction_histogram(target_variable, model_score, threshold)

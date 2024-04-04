@@ -2,6 +2,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
 import shap
+from imblearn.over_sampling import SMOTE
+from imblearn.pipeline import make_pipeline
 from sklearn.base import clone
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.feature_selection import RFECV, SelectFromModel
@@ -32,14 +34,14 @@ class Model:
         self.mcp_intercept = -6.8272
 
 
-    def add_model(self, model_name, features, use_mcp_scores=False, CV200x=False):
+    def add_model(self, model_name, features, use_mcp_scores=False, train_method=None):
         if model_name != "herder":
             self.models[model_name] = {
                 "features": features,
                 "results": {},
                 "estimator": LogisticRegression(solver='liblinear', random_state=42),
                 "use_mcp_scores": use_mcp_scores,
-                "CV200x": CV200x
+                "train_method": train_method
             }
         else:
             # Handle Herder model differently
@@ -47,7 +49,8 @@ class Model:
                 "features": features,
                 "results": {},
                 "custom_model": self.herder_model,  # Direct reference to the HerderModel instance
-                "use_mcp_scores": use_mcp_scores
+                "use_mcp_scores": use_mcp_scores,
+                "train_method": train_method
             }
 
     def reset_models(self):
@@ -56,11 +59,11 @@ class Model:
         self.models = {}
 
     def train_models(self):
-        X, y = self.preprocessor.load_and_transform_data()
         trained_models = {}
 
         for model_name, model_info in self.models.items():
             print(f"\nTraining {model_name} model...")
+            X, y = self.preprocessor.load_and_transform_data(model_name=model_name)
             X_mod = X.copy()
             if model_info["use_mcp_scores"]:
                 # Calculate MCP_score and add it to the DataFrame before training
@@ -74,8 +77,10 @@ class Model:
 
             if model_name != "herder":
                 estimator = clone(model_info["estimator"])
-                if model_info["CV200x"]:
+                if model_info["train_method"]=="CV200x":
                     self.train_with_200x_cross_validation(X_selected, y, estimator, model_name)
+                elif model_info["train_method"]=="SMOTE":
+                    self.train_with_smote_cross_validation(X_selected, y, estimator, model_name)
                 else:
                     self.train_with_cross_validation(X_selected, y, estimator, model_name)
                 model_info["estimator"] = estimator
@@ -123,20 +128,80 @@ class Model:
 
         self.print_aggregated_metrics("After 200 Iterations of 5-Fold Cross-Validation", final_aggregated_metrics)
 
-    def aggregate_metrics(self, iteration_metrics):
-        aggregated = {metric: [] for metric in ['accuracy', 'precision', 'recall', 'f1_score', 'roc_auc']}
-        for fm in iteration_metrics:
-            for metric in aggregated:
-                aggregated[metric].append(fm[metric])
-        return {metric: {'avg': np.mean(values), 'std': np.std(values)} for metric, values in aggregated.items()}
+    def train_with_smote_cross_validation(self, X, y, estimator, model_name, n_splits=5, desired_percentage=1):
+        skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=42)
+        fold_metrics = []  # List to hold metrics for each fold
+        probabilities = []
+        y_tests = []
+        custom_thresholds = []
+        for train_index, test_index in skf.split(X, y):
+            X_train, X_test = X.iloc[train_index], X.iloc[test_index]
+            y_train, y_test = y.iloc[train_index], y.iloc[test_index]
 
-    def aggregate_metrics_across_iterations(self, all_iteration_metrics):
-        aggregated = {metric: {'avg': [], 'std': []} for metric in all_iteration_metrics[0]}
-        for iteration in all_iteration_metrics:
-            for metric in aggregated:
-                aggregated[metric]['avg'].append(iteration[metric]['avg'])
-                aggregated[metric]['std'].append(iteration[metric]['std'])
-        return {metric: {'avg': np.mean(values['avg']), 'std': np.mean(values['std'])} for metric, values in aggregated.items()}
+            # Initialize SMOTE and resample the training set
+            smote = SMOTE(random_state=42)
+            X_train_resampled, y_train_resampled = smote.fit_resample(X_train, y_train)
+
+            # Clone the estimator for each fold to ensure independence
+            cloned_estimator = clone(estimator)
+            cloned_estimator.fit(X_train_resampled, y_train_resampled)
+
+            # Make predictions on the test set
+            y_train_proba = cloned_estimator.predict_proba(X_train_resampled)[:, 1]
+            y_test_proba = cloned_estimator.predict_proba(X_test)[:, 1]
+            probabilities.extend(y_test_proba.tolist())
+            y_tests.extend(y_test.tolist())
+            # Metrics before applying custom threshold
+            y_test_pred = (y_test_proba >= 0.5).astype(int)
+            tn, fp, fn, tp = confusion_matrix(y_test, y_test_pred).ravel()
+            metrics_before = {
+                'accuracy': accuracy_score(y_test, y_test_pred),
+                'precision': precision_score(y_test, y_test_pred, zero_division=0),
+                'recall': recall_score(y_test, y_test_pred),
+                'f1_score': f1_score(y_test, y_test_pred),
+                'specificity': tn / (tn + fp)
+            }
+
+            # Determine and apply custom threshold
+            custom_threshold = self.determine_custom_threshold(y_test, y_test_proba, metric=self.threshold_metric, desired_percentage=desired_percentage)
+            custom_thresholds.append(custom_threshold)
+            y_test_pred_custom = (y_test_proba >= custom_threshold).astype(int)
+            tn, fp, fn, tp = confusion_matrix(y_test, y_test_pred_custom).ravel()
+            # Metrics after applying custom threshold
+            metrics_after = {
+                'accuracy': accuracy_score(y_test, y_test_pred_custom),
+                'precision': precision_score(y_test, y_test_pred_custom, zero_division=0),
+                'recall': recall_score(y_test, y_test_pred_custom),
+                'f1_score': f1_score(y_test, y_test_pred_custom),
+                'specificity': tn / (tn + fp)
+            }
+
+            # Calculate standard metrics and ROC curve data
+            fpr, tpr, thresholds = roc_curve(y_test, y_test_proba)
+            train_roc_auc = roc_auc_score(y_train_resampled, y_train_proba)
+            test_roc_auc = roc_auc_score(y_test, y_test_proba)
+            train_fpr, train_tpr, _ = roc_curve(y_train_resampled, y_train_proba)
+            test_fpr, test_tpr, _ = roc_curve(y_test, y_test_proba)
+
+            # Append collected metrics for this fold
+            fold_metrics.append({
+                'metrics_before': metrics_before,
+                'metrics_after': metrics_after,
+                'train_roc_auc': train_roc_auc,
+                'test_roc_auc': test_roc_auc,
+                'train_fpr': train_fpr,
+                'train_tpr': train_tpr,
+                'test_fpr': test_fpr,
+                'test_tpr': test_tpr,
+                'thresholds': thresholds
+            })
+        if 'results' not in self.models[model_name]:
+            self.models[model_name]['results'] = {}
+        self.models[model_name]['results']['probabilities'] = probabilities
+        self.models[model_name]['results']['y_test'] = y_tests
+        self.models[model_name]['results']['thresholds'] = custom_thresholds
+        # After collecting metrics for all folds, calculate aggregated metrics
+        self.calculate_and_store_metrics(model_name, fold_metrics)
 
     def train_with_cross_validation(self, X, y, estimator, model_name, n_splits=5, desired_percentage=0.95):
         skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=42)
@@ -156,24 +221,27 @@ class Model:
 
             # Metrics before applying custom threshold
             y_test_pred = (y_test_proba >= 0.5).astype(int)
+            tn, fp, fn, tp = confusion_matrix(y_test, y_test_pred).ravel()
             metrics_before = {
                 'accuracy': accuracy_score(y_test, y_test_pred),
                 'precision': precision_score(y_test, y_test_pred, zero_division=0),
                 'recall': recall_score(y_test, y_test_pred),
                 'f1_score': f1_score(y_test, y_test_pred),
+                'specificity': tn / (tn + fp)
             }
 
             # Determine and apply custom threshold
             custom_threshold = self.determine_custom_threshold(y_test, y_test_proba, metric=self.threshold_metric, desired_percentage=desired_percentage)
             custom_thresholds.append(custom_threshold)
             y_test_pred_custom = (y_test_proba >= custom_threshold).astype(int)
-
+            tn, fp, fn, tp = confusion_matrix(y_test, y_test_pred_custom).ravel()
             # Metrics after applying custom threshold
             metrics_after = {
                 'accuracy': accuracy_score(y_test, y_test_pred_custom),
                 'precision': precision_score(y_test, y_test_pred_custom, zero_division=0),
                 'recall': recall_score(y_test, y_test_pred_custom),
                 'f1_score': f1_score(y_test, y_test_pred_custom),
+                'specificity': tn / (tn + fp)
             }
 
             # Calculate standard metrics and ROC curve data
@@ -203,29 +271,47 @@ class Model:
         # After collecting metrics for all folds, calculate aggregated metrics
         self.calculate_and_store_metrics(model_name, fold_metrics)
 
+
+    def aggregate_metrics(self, iteration_metrics):
+        aggregated = {metric: [] for metric in ['accuracy', 'precision', 'recall', 'f1_score', 'roc_auc']}
+        for fm in iteration_metrics:
+            for metric in aggregated:
+                aggregated[metric].append(fm[metric])
+        return {metric: {'avg': np.mean(values), 'std': np.std(values)} for metric, values in aggregated.items()}
+
+    def aggregate_metrics_across_iterations(self, all_iteration_metrics):
+        aggregated = {metric: {'avg': [], 'std': []} for metric in all_iteration_metrics[0]}
+        for iteration in all_iteration_metrics:
+            for metric in aggregated:
+                aggregated[metric]['avg'].append(iteration[metric]['avg'])
+                aggregated[metric]['std'].append(iteration[metric]['std'])
+        return {metric: {'avg': np.mean(values['avg']), 'std': np.mean(values['std'])} for metric, values in aggregated.items()}
+
     def print_aggregated_metrics(self, context, metrics):
         print(f"\nAggregated Metrics {context}:")
         for metric, stats in metrics.items():
             print(f"{metric.capitalize()}: Avg = {stats['avg']:.4f} (±{stats['std']:.4f})")
 
-    def determine_custom_threshold(self, y_test, y_proba, metric='ppv', desired_percentage=1):
+    def determine_custom_threshold(self, y, y_proba, metric='ppv', desired_percentage=None):
         if metric == 'ppv':
-            precision, recall, thresholds = precision_recall_curve(y_test, y_proba)
-            precision = precision[::-1]
-            thresholds = thresholds[::-1]
-            eligible_indices = np.where(precision >= desired_percentage)[0]
-            threshold_index = eligible_indices[-1] if eligible_indices.size > 0 else 0
-            ppv_threshold = thresholds[threshold_index]
+            precision, recall, thresholds = precision_recall_curve(y, y_proba)
+            eligible_indices = np.where(precision[:-1] >= desired_percentage)[0]
+            if eligible_indices.size > 0:
+                threshold_index = eligible_indices[0]  # Use the first index where precision is above the desired percentage
+                ppv_threshold = thresholds[threshold_index]
+            else:
+                # Default threshold if no precision value meets the desired percentage
+                ppv_threshold = 0.5
             return ppv_threshold
 
-        elif self.threshold_metric == 'npv':
+        elif metric == 'npv':
             # Convert y_test to a numpy array if it's a pandas Series
-            y_test_np = y_test.values if hasattr(y_test, 'values') else y_test
+            y_np = y.values if hasattr(y, 'values') else y
 
             # Sort the probabilities and corresponding true labels
             sorted_indices = np.argsort(y_proba)
             sorted_proba = y_proba[sorted_indices]
-            sorted_y_test_np = y_test_np[sorted_indices]
+            sorted_y_np = y_np[sorted_indices]
 
             # Initialize variables to track the best threshold and its NPV
             best_threshold = None
@@ -237,7 +323,7 @@ class Model:
                 y_pred = (sorted_proba > threshold).astype(int)
 
                 # Confusion matrix elements
-                tn, fp, fn, tp = confusion_matrix(sorted_y_test_np, y_pred).ravel()
+                tn, fp, fn, tp = confusion_matrix(sorted_y_np, y_pred).ravel()
 
                 # Calculate NPV
                 if (tn + fn) > 0:
@@ -263,8 +349,8 @@ class Model:
 
     def calculate_and_store_metrics(self, model_name, fold_metrics):
         # Initialize containers for aggregated metrics
-        aggregated_metrics_before = {'accuracy': [], 'precision': [], 'recall': [], 'f1_score': []}
-        aggregated_metrics_after = {'accuracy': [], 'precision': [], 'recall': [], 'f1_score': []}
+        aggregated_metrics_before = {'accuracy': [], 'precision': [], 'recall': [], 'f1_score': [], 'specificity': []}
+        aggregated_metrics_after = {'accuracy': [], 'precision': [], 'recall': [], 'f1_score': [], 'specificity': []}
         aggregated_roc_data = {
             'train_fpr': [], 'train_tpr': [], 'train_roc_auc': [],
             'test_fpr': [], 'test_tpr': [], 'test_roc_auc': []
@@ -273,14 +359,16 @@ class Model:
         # Loop through each fold to aggregate metrics
         for fm in fold_metrics:
             for metric in aggregated_metrics_before:
-                aggregated_metrics_before[metric].append(fm['metrics_before'][metric])
-                aggregated_metrics_after[metric].append(fm['metrics_after'][metric])
-            aggregated_roc_data['train_fpr'].append(fm['train_fpr'])
-            aggregated_roc_data['train_tpr'].append(fm['train_tpr'])
-            aggregated_roc_data['train_roc_auc'].append(fm['train_roc_auc'])
-            aggregated_roc_data['test_fpr'].append(fm['test_fpr'])
-            aggregated_roc_data['test_tpr'].append(fm['test_tpr'])
-            aggregated_roc_data['test_roc_auc'].append(fm['test_roc_auc'])
+                # Check if metrics are present before aggregating
+                if metric in fm['metrics_before']:
+                    aggregated_metrics_before[metric].append(fm['metrics_before'][metric])
+                if metric in fm['metrics_after']:
+                    aggregated_metrics_after[metric].append(fm['metrics_after'][metric])
+
+            # Aggregate ROC data with safety checks
+            for roc_key in ['train_fpr', 'train_tpr', 'train_roc_auc', 'test_fpr', 'test_tpr', 'test_roc_auc']:
+                if roc_key in fm:
+                    aggregated_roc_data[roc_key].append(fm[roc_key])
 
         # Calculate averages and standard deviations for metrics
         final_metrics_before = {metric: {'avg': np.mean(values), 'std': np.std(values)} for metric, values in aggregated_metrics_before.items()}
@@ -293,7 +381,6 @@ class Model:
         self.models[model_name]['metrics_after'] = final_metrics_after
         self.models[model_name]['roc_data'] = aggregated_roc_data
 
-        # Optionally, print summary of metrics before and after threshold adjustment
         print(f"Metrics for {model_name} Model (Before Threshold Adjustment):")
         for metric, stats in final_metrics_before.items():
             print(f"{metric.capitalize()}: Avg = {stats['avg']:.4f}, Std = {stats['std']:.4f}")
@@ -320,7 +407,7 @@ class Model:
             return
 
         # Load and transform data
-        X, y = self.preprocessor.load_and_transform_data()
+        X, y = self.preprocessor.load_and_transform_data(model_name)
 
         if model_name == 'herder':
             X_selected = X[self.herder_model.mcp_features]
@@ -452,8 +539,8 @@ class Model:
         sns.histplot(probabilities[true_labels == 0], bins=20, kde=True, color='blue', alpha=0.5, label='No LC')
         sns.histplot(probabilities[true_labels == 1], bins=20, kde=True, color='red', alpha=0.7, label='NSCLC')
 
-        # plt.axvline(x=mean_threshold, color='green', linestyle='--', label=f'Mean Threshold: {mean_threshold:.2f}')
-        plt.axvline(x=0.5, color='green', linestyle='--', label=f'Threshold: 0.5')
+        plt.axvline(x=mean_threshold, color='green', linestyle='--', label=f'Mean Threshold: {mean_threshold:.2f}')
+        # plt.axvline(x=0.5, color='green', linestyle='--', label=f'Threshold: 0.5')
         plt.title(f'Prediction Probability Distribution for {model_name} Model', fontsize=10)
         plt.xlabel('Predicted Probability of Positive Class', fontsize=16)
         plt.ylabel('Density', fontsize=16)
@@ -613,28 +700,28 @@ class Model:
         fig, axes = plt.subplots(1, 2, figsize=(12, 5), sharey=True)
 
 
-        plt.figure(figsize=(6, 5))
-        sns.heatmap(cm_default, annot=True, fmt="d", cmap='Blues')
-        plt.xlabel('Predicted labels')
-        plt.ylabel('True labels')
-        plt.title(f'Confusion Matrix {model_name} (Threshold 0.5)\nSensitivity: {sensitivity_default:.2f}, Specificity: {specificity_default:.2f}', fontsize=10)
-        plt.xticks(ticks=np.arange(2) + 0.5, labels=['Negative', 'Positive'], fontsize=10)
-        plt.yticks(ticks=np.arange(2) + 0.5, labels=['Negative', 'Positive'], rotation=0, fontsize=10)
+        # plt.figure(figsize=(6, 5))
+        # sns.heatmap(cm_default, annot=True, fmt="d", cmap='Blues')
+        # plt.xlabel('Predicted labels')
+        # plt.ylabel('True labels')
+        # plt.title(f'Confusion Matrix {model_name} (Threshold 0.5)\nSensitivity: {sensitivity_default:.2f}, Specificity: {specificity_default:.2f}', fontsize=10)
+        # plt.xticks(ticks=np.arange(2) + 0.5, labels=['Negative', 'Positive'], fontsize=10)
+        # plt.yticks(ticks=np.arange(2) + 0.5, labels=['Negative', 'Positive'], rotation=0, fontsize=10)
 
         # Plotting the confusion matrix for the default threshold
-        # sns.heatmap(cm_default, annot=True, fmt="d", cmap='Blues', ax=axes[0], cbar=False)
-        # axes[0].set_xlabel('Predicted labels')
-        # axes[0].set_ylabel('True labels')
-        # axes[0].set_title(f'Confusion Matrix {model_name} (Default Threshold 0.5)\nSensitivity: {sensitivity_default:.2f}, Specificity: {specificity_default:.2f}')
-        # axes[0].set_xticklabels(['Negative', 'Positive'])
-        # axes[0].set_yticklabels(['Negative', 'Positive'], rotation=0)
+        sns.heatmap(cm_default, annot=True, fmt="d", cmap='Blues', ax=axes[0], cbar=False)
+        axes[0].set_xlabel('Predicted labels')
+        axes[0].set_ylabel('True labels')
+        axes[0].set_title(f'Confusion Matrix {model_name} (Default Threshold 0.5)\nSensitivity: {sensitivity_default:.2f}, Specificity: {specificity_default:.2f}')
+        axes[0].set_xticklabels(['Negative', 'Positive'])
+        axes[0].set_yticklabels(['Negative', 'Positive'], rotation=0)
 
         # Plotting the confusion matrix for the custom average threshold
-        # sns.heatmap(cm_custom, annot=True, fmt="d", cmap='Blues', ax=axes[1])
-        # axes[1].set_xlabel('Predicted labels')
-        # axes[1].set_title(f'{self.threshold_metric} Threshold {average_threshold:.2f})\nSensitivity: {sensitivity_custom:.2f}, Specificity: {specificity_custom:.2f}')
-        # axes[1].set_xticklabels(['Negative', 'Positive'])
-        # axes[1].set_yticklabels(['Negative', 'Positive'], rotation=0)
+        sns.heatmap(cm_custom, annot=True, fmt="d", cmap='Blues', ax=axes[1])
+        axes[1].set_xlabel('Predicted labels')
+        axes[1].set_title(f'{self.threshold_metric} Threshold {average_threshold:.2f})\nSensitivity: {sensitivity_custom:.2f}, Specificity: {specificity_custom:.2f}')
+        axes[1].set_xticklabels(['Negative', 'Positive'])
+        axes[1].set_yticklabels(['Negative', 'Positive'], rotation=0)
 
         plt.tight_layout()
         plt.show()
