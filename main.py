@@ -2,11 +2,12 @@ import numpy as np
 import pandas as pd
 
 from data_preprocessing import DataPreprocessor
-from ensemble_model import VotingModel, score_based_ensemble
+from decisiontree import DecisionTree
+from ensemble_model import VotingModel
 from model import Model
 
-df = pd.read_excel('Dataset BEP Rafi.xlsx')
-filepath='Dataset BEP Rafi.xlsx'
+filepath='Dataset BEP Rafi.xlsx' # Change to your filepath
+df = pd.read_excel(filepath)
 target='Diagnose'
 binary_map={'Nee': 0, 'Ja': 1}
 preprocessor = DataPreprocessor(filepath, target, binary_map)
@@ -78,32 +79,44 @@ features_NSCLC_output = [
             'remainder__% NSCLC in TM-model',
         ]
 
-# Initialize the Model class
-model_manager = Model(filepath, target, binary_map, threshold_metric='npv')
+# BTS Guideline outcomes for statistical tests
+decision_tree = DecisionTree(filepath)
+guideline_scores = decision_tree.prepare_guideline_data()
 
 # features_ensemble = list(set(features_brock + features_herder + features_lbx))
 features_brock_and_herder = list(set(features_brock + features_herbert))
+features_pmBHscore1 = features_brock_and_herder + features_NSCLC_output
+features_pmBHscore2 = features_brock_and_herder + features_LC_output
+
+# Initialize the Model class
+model_manager = Model(filepath, target, binary_map, threshold_metric='npv', guideline_data=guideline_scores)
 
 # Clear previously stored models and their results
 model_manager.reset_models()
 
-# Add models to the manager
+# Add retrained models to the model manager for the voting classifiers
+# Herder applies 2 step training whilst Herbert applies 1 step
+
 model_manager.add_model("brock", features_brock)
 # model_manager.add_model("herder", features_herder)
 model_manager.add_model("herbert", features_herbert, use_mcp_scores=False)
-# model_manager.add_model("lbx", features_lbx)
+model_manager.add_model("lbx", features_lbx)
 # model_manager.add_model("lc", features_lc)
 # model_manager.add_model("nsclc", features_nsclc)
 
-# Feature selection
+
+#===========================#
+#     FEATURE SELECTION     #
+#===========================#
+
 # model_manager.apply_tree_based_feature_selection("brock")
 # model_manager.apply_tree_based_feature_selection("herder")
 # model_manager.apply_tree_based_feature_selection("herbert")
-model_manager.apply_tree_based_feature_selection("lbx")
+# model_manager.apply_tree_based_feature_selection("lbx")
 
-model_manager.apply_rfe_feature_selection("brock")
+# model_manager.apply_rfe_feature_selection("brock")
 # model_manager.apply_rfe_feature_selection("herder")
-model_manager.apply_rfe_feature_selection("herbert")
+# model_manager.apply_rfe_feature_selection("herbert")
 # model_manager.apply_rfe_feature_selection("lbx")
 
 # model_manager.apply_logistic_l1_feature_selection("brock")
@@ -111,18 +124,25 @@ model_manager.apply_rfe_feature_selection("herbert")
 # model_manager.apply_logistic_l1_feature_selection("herbert")
 # model_manager.apply_logistic_l1_feature_selection("lbx")
 
-# Train models and prepare the voting ensemble
-features_pmBHscore1 = features_brock_and_herder + features_NSCLC_output
-features_pmBHscore2 = features_brock_and_herder + features_LC_output
 features_ensemble = model_manager.get_updated_ensemble_features()
 features_mine = features_ensemble + features_BH_output
-model_manager.add_model("NSCLC output + Brock and herder features", features_pmBHscore1, train_method="SMOTE")
-# model_manager.add_model("LC output + Brock and Herder features", features_pmBHscore2)
-# model_manager.add_model("LBx features + Brock and Herder output", features_mine)
-# model_manager.add_model("LBx + Brock and Herder features", features_ensemble)
 
+model_manager.add_model("NSCLC output + Brock and herder features", features_pmBHscore1)
+model_manager.add_model("LC output + Brock and Herder features", features_pmBHscore2)
+model_manager.add_model("LBx features + Brock and Herder output", features_mine)
+model_manager.add_model("LBx + Brock and Herder features", features_ensemble)
+model_manager.add_model("LBx + Brock and Herder Output", features_ensemble_output)
+model_manager.add_model("Brock and Herder Output", features_BH_output)
 
 trained_models = model_manager.train_models()
+
+
+#===========================#
+#     STATISTICAL TESTS     #
+#===========================#
+
+# model_manager.perform_mann_whitney_test()
+# model_manager.perform_wilcoxon_signed_rank_test()
 
 
 #===========================#
@@ -166,16 +186,17 @@ trained_models = model_manager.train_models()
 # model_manager.plot_prediction_histograms('lbx')
 # model_manager.plot_confusion_matrices("lbx")
 
+
 #===========================#
-#      MIXED ENSEMBLE       #
+#       HYBRID MODELS       #
 #===========================#
 
 # print("\nNSCLC output + Brock and herder features Formula")
 # print(model_manager.get_logistic_regression_formula("NSCLC output + Brock and herder features"))
-model_manager.plot_roc_curves("NSCLC output + Brock and herder features")
+# model_manager.plot_roc_curves("NSCLC output + Brock and herder features")
 # model_manager.generate_shap_plot("NSCLC output + Brock and herder features")
-model_manager.plot_prediction_histograms("NSCLC output + Brock and herder features")
-model_manager.plot_confusion_matrices("NSCLC output + Brock and herder features")
+# model_manager.plot_prediction_histograms("NSCLC output + Brock and herder features")
+# model_manager.plot_confusion_matrices("NSCLC output + Brock and herder features")
 
 # print("\nLC output + Brock and Herder features Formula")
 # print(model_manager.get_logistic_regression_formula('LC output + Brock and Herder features'))
@@ -192,9 +213,8 @@ model_manager.plot_confusion_matrices("NSCLC output + Brock and herder features"
 
 
 #===========================#
-#        INPUT MODELS       #
+#       INPUT MODELS        #
 #===========================#
-
 
 # print(model_manager.get_logistic_regression_formula('LBx + Brock and Herder features'))
 # model_manager.plot_roc_curves('LBx + Brock and Herder features')
@@ -202,6 +222,7 @@ model_manager.plot_confusion_matrices("NSCLC output + Brock and herder features"
 # model_manager.plot_prediction_histograms('LBx + Brock and Herder features')
 # model_manager.plot_confusion_matrices("LBx + Brock and Herder features")
 
+# MAKE SURE YOU ONLY ADD AND TRAIN THE MODELS USED IN THESE MODELS BEFORE RUNNING EVALUATION!!!
 # voting_model = VotingModel(trained_models, features_ensemble, filepath, target, binary_map, 'LBX + BROCK AND HERDER INPUT', threshold_metric='npv')
 # voting_model.reset()
 # voting_model.train_voting_classifier()
@@ -219,21 +240,20 @@ model_manager.plot_confusion_matrices("NSCLC output + Brock and herder features"
 # voting_model.plot_confusion_matrices()
 
 
-
 #===========================#
-#       OUTPUT MODELS       #
+#      OUTPUT MODELS        #
 #===========================#
 
-# score_model = score_based_ensemble(filepath, target, binary_map, features_ensemble_output, "NSCLC + BROCK AND HERDER OUTPUT", threshold_metric='npv')
-# score_model.fit_evaluate()
-# score_model.print_scores()
-# score_model.plot_roc_curve()
-# score_model.plot_prediction_histogram()
-# score_model.plot_confusion_matrices()
+# print("\nLBx + Brock and Herder Output Formula")
+# print(model_manager.get_logistic_regression_formula('LBx + Brock and Herder Output'))
+# model_manager.plot_roc_curves('LBx + Brock and Herder Output', 'test')
+# model_manager.generate_shap_plot('LBx + Brock and Herder Output')
+# model_manager.plot_prediction_histograms('LBx + Brock and Herder Output')
+# model_manager.plot_confusion_matrices("LBx + Brock and Herder Output")
 
-# score_model = score_based_ensemble(filepath, target, binary_map, features_BH_output, "BROCK AND HERDER OUTPUT", threshold_metric='npv')
-# score_model.fit_evaluate()
-# score_model.print_scores()
-# score_model.plot_roc_curve()
-# score_model.plot_prediction_histogram()
-# score_model.plot_confusion_matrices()
+# print("\nBrock and Herder Output Formula")
+# print(model_manager.get_logistic_regression_formula('Brock and Herder Output'))
+# model_manager.plot_roc_curves('Brock and Herder Output', 'train')
+# model_manager.generate_shap_plot('Brock and Herder Output')
+# model_manager.plot_prediction_histograms('Brock and Herder Output')
+# model_manager.plot_confusion_matrices("Brock and Herder Output")

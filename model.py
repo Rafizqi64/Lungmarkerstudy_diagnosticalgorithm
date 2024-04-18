@@ -3,7 +3,7 @@ import numpy as np
 import seaborn as sns
 import shap
 from imblearn.over_sampling import SMOTE
-from imblearn.pipeline import make_pipeline
+from scipy import stats
 from sklearn.base import clone
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.feature_selection import RFECV, SelectFromModel
@@ -18,12 +18,47 @@ from herder_model import HerderModel
 
 
 class Model:
-    def __init__(self, filepath, target, binary_map, threshold_metric="ppv"):
+    """
+    A class used to manage and operate on various predictive models to handle tasks such as training, evaluation,
+    and feature selection for lung cancer prediction models. This class is used to retrain the individual brock herder/herbert and Lbx models
+    and parses them to the ensemble model class. This model can also be used to train all logistic regression models.
+
+    Attributes:
+    - filepath (str): The path to the dataset file.
+    - target (str): The Diagnosis variable.
+    - binary_map (dict): A dictionary mapping the diagnosis variable's classes to binary labels.
+    - threshold_metric (str, optional): The metric ('ppv' or 'npv') based on which the custom threshold is set. Defaults to 'ppv'.
+    - guideline_data (DataFrame, optional): Data containing guideline metrics used for comparative analysis.
+
+    Methods:
+    - add_model: Adds a model configuration to the model dictionary.
+    - reset_models: Resets the model configurations, removing all stored models and their data.
+    - train_models: Trains all configured models using specified methods such as cross-validation.
+    - train_with_200x_cross_validation: Uses extended cross-validation to train models for robust metric estimation.
+    - train_with_smote_cross_validation: Employs SMOTE for handling class imbalance during model training.
+    - train_with_cross_validation: Conducts straightforward cross-validation without synthetic sample generation.
+    - determine_custom_threshold: Calculates a decision threshold based on the desired performance metric.
+    - calculate_mcp_scores: Computes Model Confidence Prediction scores using logistic regression coefficients.
+    - calculate_and_store_metrics: Aggregates performance metrics across different folds and stores them.
+    - perform_wilcoxon_signed_rank_test: Applies the Wilcoxon signed-rank test to compare model and guideline metrics.
+    - perform_mann_whitney_test: Uses the Mann-Whitney U test for statistical comparison between model outputs and guidelines.
+    - apply_tree_based_feature_selection: Selects features based on their importance using a Random Forest classifier.
+    - apply_logistic_l1_feature_selection: Utilizes L1 regularization to identify relevant features.
+    - apply_rfe_feature_selection: Employs Recursive Feature Elimination to reduce the number of features.
+    - get_updated_ensemble_features: Gathers all unique features used across the configured models.
+    - plot_prediction_histograms: Visualizes the distribution of predicted probabilities.
+    - plot_roc_curves: Displays the Receiver Operating Characteristic curves for model evaluation.
+    - generate_shap_plot: Generates SHAP plots to explain the impact of features on model predictions.
+    - get_logistic_regression_formula: Constructs a readable formula for logistic regression models.
+    - plot_confusion_matrices: Plots confusion matrices to evaluate model performance visually.
+    """
+    def __init__(self, filepath, target, binary_map, threshold_metric="ppv", guideline_data=None):
         self.preprocessor = DataPreprocessor(filepath, target, binary_map)
         self.models = {}
         self.n_estimators = 10
         self.herder_model = HerderModel(self.preprocessor)
         self.threshold_metric = threshold_metric
+        self.guideline_data = guideline_data
         self.mcp_coefficients = {
             'remainder__Current/Former smoker': 0.7917,
             'remainder__Previous History of Extra-thoracic Cancer': 1.3388,
@@ -35,6 +70,26 @@ class Model:
 
 
     def add_model(self, model_name, features, use_mcp_scores=False, train_method=None):
+        """
+        Adds a new model configuration to the model dictionary to be used in a voting classifier. This configuration includes
+        the features to use, whether to utilize Model Confidence Prediction (MCP) scores, and the training
+        method to employ.
+
+        The function differentiates between regular models and the 'herder' model, which is handled specially
+        due to its unique requirements and setup.
+
+        Parameters:
+        - model_name (str): The name of the model to add. Special behavior if 'herder' is used.
+        - features (list of str): List of feature names to be used for this model.
+        - use_mcp_scores (bool): Flag to indicate whether MCP scores should be incorporated into the model's features.
+        - train_method (str or None): Specifies the training method to be applied (e.g., 'CV200x', 'SMOTE', or None for default).
+
+        Effects:
+        - Updates the internal dictionary of models to include the new model along with its configuration.
+
+        Notes:
+        - If 'herder' is specified as the model_name, the model configuration links directly to a predefined HerderModel instance.
+        """
         if model_name != "herder":
             self.models[model_name] = {
                 "features": features,
@@ -59,8 +114,26 @@ class Model:
         self.models = {}
 
     def train_models(self):
-        trained_models = {}
+        """
+        Trains various models specified in the `models` attribute of the class instance. This function handles
+        different training configurations and methodologies including cross-validation and SMOTE for handling imbalanced data.
 
+        The function iteratively processes each model configuration, prepares the data by optionally including
+        MCP (Model Confidence Prediction) scores, selects relevant features, and applies the appropriate training method
+        based on the model configuration.
+
+        For the 'herder' model, a custom training procedure is invoked due to the 2 step process. For other models, standard or SMOTE-enhanced
+        cross-validation techniques are used based on the configuration.
+
+        Returns:
+        - trained_models (dict): A dictionary containing the trained model instances, keyed by model name.
+
+        Side Effects:
+        - Prints the training progress and, for the 'herder' model, the model formulae after training.
+        - Modifies the `models` attribute by updating the estimator objects with the trained instances.
+        """
+
+        trained_models = {}
         for model_name, model_info in self.models.items():
             print(f"\nTraining {model_name} model...")
             X, y = self.preprocessor.load_and_transform_data(model_name=model_name)
@@ -93,10 +166,27 @@ class Model:
 
         return trained_models
 
-    def train_with_200x_cross_validation(self, X, y, estimator, model_name, n_splits=5, n_iterations=200, desired_percentage=0.95):
+    def train_with_200x_cross_validation(self, X, y, estimator, model_name, n_splits=5, n_iterations=25, desired_percentage=0.95):
+        """
+        Trains the specified estimator using 200x cross-validation, which involves multiple iterations of Stratified K-Fold.
+        This method aims to stabilize the estimation of model performance by repeatedly sampling and training.
+
+        Parameters:
+        - X (DataFrame): Feature matrix.
+        - y (array-like): Target vector.
+        - estimator (estimator instance): An instance of a scikit-learn estimator.
+        - model_name (str): Name of the model, used for referencing in outputs.
+        - n_splits (int): Number of splits for the Stratified K-Fold.
+        - n_iterations (int): Number of cross-validation iterations.
+        - desired_percentage (float): Target percentage for custom threshold determination.
+
+        Effects:
+        - Trains the model multiple times across specified iterations and folds, calculates metrics,
+          and aggregates them to provide robust performance estimates.
+        """
         all_iteration_metrics = []  # List to hold aggregated metrics for each iteration
 
-        for iteration in range(n_iterations):
+        for iteration in range(0, n_iterations):
             skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=42 + iteration)
             iteration_metrics = []  # List to hold metrics for each fold in the current iteration
 
@@ -119,16 +209,29 @@ class Model:
                 }
 
                 iteration_metrics.append(metrics)
-
             aggregated_iteration_metrics = self.aggregate_metrics(iteration_metrics)
             all_iteration_metrics.append(aggregated_iteration_metrics)
-
         final_aggregated_metrics = self.aggregate_metrics_across_iterations(all_iteration_metrics)
         self.models[model_name] = {'aggregated_metrics': final_aggregated_metrics}
-
-        self.print_aggregated_metrics("After 200 Iterations of 5-Fold Cross-Validation", final_aggregated_metrics)
+        self.print_aggregated_metrics(f"After {n_iterations} Iterations of 5-Fold Cross-Validation", final_aggregated_metrics)
 
     def train_with_smote_cross_validation(self, X, y, estimator, model_name, n_splits=5, desired_percentage=1):
+        """
+        Trains the specified estimator using SMOTE (Synthetic Minority Over-sampling Technique) and cross-validation.
+        This method is particularly used to handle class imbalance by generating synthetic samples.
+
+        Parameters:
+        - X (DataFrame): Feature matrix.
+        - y (array-like): Target vector.
+        - estimator (estimator instance): An instance of a scikit-learn estimator.
+        - model_name (str): Name of the model, used for referencing in outputs.
+        - n_splits (int): Number of splits for the Stratified K-Fold.
+        - desired_percentage (float): Target percentage for custom threshold determination which impacts metric calculation.
+
+        Effects:
+        - Applies SMOTE to balance the dataset, trains the estimator on the augmented data, and evaluates it using
+          cross-validation to calculate various performance metrics.
+        """
         skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=42)
         fold_metrics = []  # List to hold metrics for each fold
         probabilities = []
@@ -204,6 +307,21 @@ class Model:
         self.calculate_and_store_metrics(model_name, fold_metrics)
 
     def train_with_cross_validation(self, X, y, estimator, model_name, n_splits=5, desired_percentage=0.95):
+        """
+        Trains the specified estimator using standard cross-validation.
+
+        Parameters:
+        - X (DataFrame): Feature matrix.
+        - y (array-like): Target vector.
+        - estimator (estimator instance): An instance of a scikit-learn estimator.
+        - model_name (str): Name of the model, used for referencing in outputs.
+        - n_splits (int): Number of splits for the Stratified K-Fold.
+        - desired_percentage (float): Target percentage for custom threshold determination, affecting metrics like specificity.
+
+        Effects:
+        - Trains the estimator using cross-validation, computes metrics at a default and custom threshold,
+          and aggregates these metrics to assess model performance.
+        """
         skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=42)
         fold_metrics = []  # List to hold metrics for each fold
         probabilities = []
@@ -268,7 +386,6 @@ class Model:
         self.models[model_name]['results']['probabilities'] = probabilities
         self.models[model_name]['results']['y_test'] = y_tests
         self.models[model_name]['results']['thresholds'] = custom_thresholds
-        # After collecting metrics for all folds, calculate aggregated metrics
         self.calculate_and_store_metrics(model_name, fold_metrics)
 
 
@@ -293,6 +410,24 @@ class Model:
             print(f"{metric.capitalize()}: Avg = {stats['avg']:.4f} (±{stats['std']:.4f})")
 
     def determine_custom_threshold(self, y, y_proba, metric='ppv', desired_percentage=None):
+        """
+        Determines a custom threshold for classification based on the desired metric's target percentage.
+
+        This function calculates thresholds using either positive predictive value (PPV) or negative predictive value (NPV)
+        to determine the smallest threshold which meets or exceeds the desired percentage of the specified metric.
+
+        Parameters:
+        - y (array-like): True binary labels.
+        - y_proba (array-like): Probabilities of the positive class.
+        - metric (str): Metric to use for thresholding ('ppv' for positive predictive value, 'npv' for negative predictive value).
+        - desired_percentage (float): The minimum desired percentage for the chosen metric.
+
+        Returns:
+        - float: The determined threshold that meets or exceeds the desired metric percentage, defaults to 0.5 if no such threshold is found.
+
+        Raises:
+        - ValueError: If an invalid metric is specified.
+        """
         if metric == 'ppv':
             precision, recall, thresholds = precision_recall_curve(y, y_proba)
             eligible_indices = np.where(precision[:-1] >= desired_percentage)[0]
@@ -305,7 +440,6 @@ class Model:
             return ppv_threshold
 
         elif metric == 'npv':
-            # Convert y_test to a numpy array if it's a pandas Series
             y_np = y.values if hasattr(y, 'values') else y
 
             # Sort the probabilities and corresponding true labels
@@ -317,7 +451,6 @@ class Model:
             best_threshold = None
             best_npv = 0
 
-            # Iterate over probabilities as potential thresholds
             for idx, threshold in enumerate(sorted_proba[:-1]):  # Exclude the last one to prevent division by zero
                 # Predictions based on current threshold
                 y_pred = (sorted_proba > threshold).astype(int)
@@ -337,6 +470,21 @@ class Model:
             raise ValueError("Invalid metric specified. Choose 'ppv' or 'npv'.")
 
     def calculate_mcp_scores(self, X):
+        """
+        Calculates the Model Confidence Prediction (MCP) scores for the input features based on a logistic regression model.
+
+        This function computes a logistic regression prediction without using the logistic regression model directly.
+        Instead, it uses the coefficients and intercepts manually for the calculation.
+
+        Parameters:
+        - X (DataFrame): The input features for which MCP scores are to be calculated.
+
+        Returns:
+        - Series: A series containing the MCP scores for the input data.
+
+        Outputs:
+        - Prints the maximum MCP score encountered during the calculations.
+        """
         x_prime = self.mcp_intercept
         for feature, coeff in self.mcp_coefficients.items():
             if feature in X.columns:
@@ -348,6 +496,21 @@ class Model:
         return mcp_scores
 
     def calculate_and_store_metrics(self, model_name, fold_metrics):
+        """
+        Aggregates and calculates performance metrics from cross-validation folds and stores them in the model's dictionary.
+
+        This function takes the metrics from individual folds, calculates their average and standard deviation, and
+        aggregates ROC data. It then prints and stores these aggregated metrics.
+
+        Parameters:
+        - model_name (str): The name of the model for which metrics are being calculated and stored.
+        - fold_metrics (list of dicts): A list containing metric dictionaries for each fold, which include metrics both before
+          and after threshold adjustment, as well as ROC curve data.
+
+        Effects:
+        - Updates the model's entry in `self.models` with aggregated metrics and ROC data.
+        - Prints aggregated metrics and their standard deviations.
+        """
         # Initialize containers for aggregated metrics
         aggregated_metrics_before = {'accuracy': [], 'precision': [], 'recall': [], 'f1_score': [], 'specificity': []}
         aggregated_metrics_after = {'accuracy': [], 'precision': [], 'recall': [], 'f1_score': [], 'specificity': []}
@@ -365,7 +528,6 @@ class Model:
                 if metric in fm['metrics_after']:
                     aggregated_metrics_after[metric].append(fm['metrics_after'][metric])
 
-            # Aggregate ROC data with safety checks
             for roc_key in ['train_fpr', 'train_tpr', 'train_roc_auc', 'test_fpr', 'test_tpr', 'test_roc_auc']:
                 if roc_key in fm:
                     aggregated_roc_data[roc_key].append(fm[roc_key])
@@ -377,6 +539,8 @@ class Model:
         avg_test_roc_auc = np.mean(aggregated_roc_data['test_roc_auc'])
 
         # Store aggregated metrics in the model's dictionary
+        self.models[model_name]['metrics_waybefore'] = aggregated_metrics_before
+        self.models[model_name]['metrics_beforeafter'] = aggregated_metrics_after
         self.models[model_name]['metrics_before'] = final_metrics_before
         self.models[model_name]['metrics_after'] = final_metrics_after
         self.models[model_name]['roc_data'] = aggregated_roc_data
@@ -391,6 +555,88 @@ class Model:
             print(f"{metric.capitalize()}: Avg = {stats['avg']:.4f}, Std = {stats['std']:.4f}")
         print(f"Train ROC AUC: Avg = {avg_train_roc_auc:.4f}")
         print(f"Test ROC AUC: Avg = {avg_test_roc_auc:.4f}\n")
+
+
+    def perform_wilcoxon_signed_rank_test(self):
+        """Compare each model's aggregated metrics against BTS guideline metrics using Wilcoxon signed-rank test."""
+        if not self.guideline_data:
+            print("Guideline metrics not properly provided.")
+            return
+
+        bts_metrics = self.guideline_data
+        print("\nComparing model metrics against BTS guidelines:")
+
+        for model_name, model_info in self.models.items():
+            print(f"\nResults for {model_name}:")
+            if 'metrics_before' not in model_info or 'metrics_after' not in model_info:
+                print("Metrics not properly stored for this model.")
+                continue
+
+            # Get metrics before and after threshold adjustment
+            metrics_before = model_info['metrics_waybefore']
+            metrics_after = model_info['metrics_beforeafter']
+
+            # Extract values for each metric
+            for metric in ['accuracy', 'precision', 'recall', 'f1_score', 'specificity']:
+                if metric not in metrics_before or metric not in metrics_after:
+                    print(f"Metric {metric} not found for this model.")
+                    continue
+
+                model_metric_values_before = metrics_before[metric]
+                model_metric_values_after = metrics_after[metric]
+                bts_metric_values = [entry[metric] for entry in bts_metrics]
+
+                # Ensure the number of observations is the same for Wilcoxon test
+                if len(model_metric_values_before) != len(bts_metric_values):
+                    print(model_metric_values_before)
+                    print(len(bts_metric_values))
+                    print(f"Cannot perform Wilcoxon test for {metric} due to unequal sample sizes.")
+                    continue
+
+                # Perform Wilcoxon Signed-Rank Test
+                try:
+                    stat_before, p_value_before = stats.wilcoxon(model_metric_values_before, bts_metric_values, zero_method='wilcox', alternative='two-sided')
+                    print(f"{metric.capitalize()} Comparison Before: W-stat={stat_before}, P-value={p_value_before:.4f}")
+                    # Repeat for 'after' metrics if applicable
+                    stat_after, p_value_after = stats.wilcoxon(model_metric_values_after, bts_metric_values, zero_method='wilcox', alternative='two-sided')
+                    print(f"{metric.capitalize()} Comparison After: W-stat={stat_after}, P-value={p_value_after:.4f}")
+                except ValueError as e:
+                    print(f"Error performing Wilcoxon test for {metric}: {str(e)}")
+
+    def perform_mann_whitney_test(self):
+        """Compare each model's aggregated metrics against BTS guideline metrics using Mann-Whitney U test."""
+        if not self.guideline_data:
+            print("Guideline metrics not properly provided.")
+            return
+
+        bts_metrics = self.guideline_data
+        print("\nComparing model metrics against BTS guidelines:")
+
+        for model_name, model_info in self.models.items():
+            print(f"\nResults for {model_name}:")
+            if 'metrics_before' not in model_info or 'metrics_after' not in model_info:
+                print("Metrics not properly stored for this model.")
+                continue
+
+            # Get metrics before and after threshold adjustment
+            metrics_before = model_info['metrics_waybefore']
+            metrics_after = model_info['metrics_beforeafter']
+
+            # Extract values for each metric
+            for metric in ['accuracy', 'precision', 'recall', 'f1_score', 'specificity']:
+                if metric not in metrics_before or metric not in metrics_after:
+                    print(f"Metric {metric} not found for this model.")
+                    continue
+
+                model_metric_values_before = metrics_before[metric]
+                model_metric_values_after = metrics_after[metric]
+                bts_metric_values = [entry[metric] for entry in bts_metrics]
+
+                # Perform Mann-Whitney U Test
+                u_stat_before, p_value_before = stats.mannwhitneyu(model_metric_values_before, bts_metric_values, alternative='two-sided')
+                u_stat_after, p_value_after = stats.mannwhitneyu(model_metric_values_after, bts_metric_values, alternative='two-sided')
+                print(f"{metric.capitalize()} Comparison Before: U-stat={u_stat_before}, P-value={p_value_before:.4f}")
+                # print(f"{metric.capitalize()} Comparison After: U-stat={u_stat_after}, P-value={p_value_after:.4f}")
 
     def apply_tree_based_feature_selection(self, model_name):
         """
@@ -503,9 +749,18 @@ class Model:
             self.models[model_name]['features'] = list(selected_features)
 
     def get_updated_ensemble_features(self):
+        """
+        Compiles a unique list of all features used across various models within the ensemble, including any
+        Model Confidence Prediction (MCP) features if they are utilized by any model.
+
+        This function iterates over each model configuration, collects standard features, and conditionally includes
+        MCP-related features based on model settings.
+
+        Returns:
+        - list: A list of unique features used across the ensemble models.
+        """
         # Initialize a set to hold all unique ensemble features
         ensemble_features = set()
-
         # Iterate through each model and its information
         for model_name, model_info in self.models.items():
             # Add regularly selected features
@@ -550,6 +805,17 @@ class Model:
         plt.show()
 
     def plot_roc_curves(self, model_name, curve_type='test'):
+        """
+        Plots the Receiver Operating Characteristic (ROC) curves
+
+        Parameters:
+        - model_name (str): The name of the model for which to plot the ROC curves.
+        - curve_type (str): Type of curve to plot ('train' or 'test'), default is 'test'.
+
+        Outputs:
+        - A plot displaying the ROC curves for all folds, the mean ROC curve, and the chance line.
+        """
+
         if 'roc_data' not in self.models[model_name]:
             print(f"ROC curve data not available for {model_name}.")
             return
@@ -600,7 +866,6 @@ class Model:
         ax.set_title(f"ROC Curve for {model_name} ({curve_type.capitalize()})")
         ax.legend(loc="lower right")
         plt.show()
-
 
     def generate_shap_plot(self, model_name):
         model_info = self.models.get(model_name)

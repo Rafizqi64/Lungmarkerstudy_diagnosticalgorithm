@@ -5,6 +5,26 @@ from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 
 class DataPreprocessor:
+    """
+    Prepares and transforms dataset for model training and evaluation.
+
+    Attributes:
+    - filepath (str): The path to the dataset file.
+    - target (str): The name of the target variable in the dataset.
+    - binary_map (dict): A dictionary mapping original target labels to binary values.
+    - df (DataFrame): The loaded dataset after initial processing.
+    - X (DataFrame): The feature matrix after applying all transformations.
+    - y (Series): The Diagnosis after binary mapping.
+    - feature_names (list): List of feature names after processing and encoding.
+
+    Methods:
+    - load_and_transform_data: Loads data from the specified file path and applies transformations such as
+      binary mapping, log transformations for numerical features, standard scaling, and one-hot encoding for categorical features.
+      Specific transformations for model types like 'brock' are conditionally applied.
+
+    The class facilitates flexible preprocessing tailored to different modeling scenarios, ensuring data is appropriately
+    formatted and ready for use in machine learning models.
+    """
     def __init__(self, filepath, target, binary_map):
         self.filepath = filepath
         self.target = target

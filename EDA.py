@@ -19,7 +19,7 @@ class ModelEDA:
         self.df = pd.read_excel(filepath)
         self.df['Diagnosis_Encoded'] = np.where(self.df['Diagnose'] == 'No LC', 0, 1)
         self.models = ['Brock score (%)', 'Herder score (%)', '% LC in TM-model', '% NSCLC in TM-model']
-        self.numerical_vars = ['Nodule size (1-30 mm)', 'Nodule Count', 'CA125', 'CA15.3', 'CEA', 'CYFRA 21-1', 'HE4', 'NSE', 'NSE corrected for H-index', 'proGRP', 'SCCA']
+        self.numerical_vars = ['Nodule size (1-30 mm)', 'Nodule Count', 'CA125', 'CA15.3', 'CEA', 'CYFRA 21-1', 'HE4', 'NSE corrected for H-index', 'proGRP', 'SCCA']
         self.categorical_vars = ['Current/Former smoker',
                         'Family History of LC', 'Emphysema',
                         'Nodule Type', 'Nodule Upper Lobe',
@@ -60,7 +60,6 @@ class ModelEDA:
         return self.df
 
     def calculate_distribution(self, var):
-        # Check if the variable is originally binary but represented numerically (1/0)
         if var in ['Current/Former smoker', 'Family History of LC', 'Emphysema', 'Nodule Upper Lobe', 'Spiculation']:
             # For original binary variables, calculate the distribution as percentage for both 1 (Yes) and 0 (No) values
             distribution = self.df.groupby('Diagnose')[var].value_counts(normalize=True).unstack(fill_value=0) * 100
@@ -79,7 +78,6 @@ class ModelEDA:
         for var in self.categorical_vars + self.numerical_vars:
             distribution = self.calculate_distribution(var)
 
-            # Differentiate between distribution types
             if var in ['Current/Former smoker', 'Family History of LC', 'Emphysema', 'Nodule Upper Lobe', 'Spiculation']:
                 # Original binary variables
                 no_lc_dist = f"No: {distribution.loc['No LC', 0]:.2f}%, Yes: {distribution.loc['No LC', 1]:.2f}%"
@@ -129,7 +127,7 @@ class ModelEDA:
             else:
                 _, p_val, _, _ = chi2_contingency(contingency_table)
                 test_used = "Chi-Square"
-        return p_val, test_used  # Make sure to return a tuple in all cases
+        return p_val, test_used
 
     def evaluate_simple_model_scores(self, true_label_col, score_col, threshold=50, num_folds=5):
         """
@@ -156,7 +154,6 @@ class ModelEDA:
             y_test = y[test_idx]
             scores_test = scores[test_idx]
 
-            # Convert scores to binary predictions based on the threshold
             predictions = (scores_test >= threshold).astype(int)
 
             # Calculate metrics for this fold
@@ -174,8 +171,6 @@ class ModelEDA:
         # Calculate the average and standard deviation of each metric across all folds
         avg_metrics = {metric: np.mean(values) for metric, values in metrics.items()}
         std_metrics = {metric: np.std(values) for metric, values in metrics.items()}
-
-        # Combine average and standard deviation in the output dictionary
         metrics_output = {metric: {'average': avg, 'std_dev': std_metrics[metric]} for metric, avg in avg_metrics.items()}
 
         return metrics_output
@@ -236,7 +231,6 @@ class ModelEDA:
             plt.xlabel('Protein Marker')
             plt.ylabel('Marker Level (pg/ml)')
 
-            # Handling the legend to avoid duplicates and correctly label the categories
             handles, labels = plt.gca().get_legend_handles_labels()
             new_labels = ['No LC', 'LC']
             plt.legend(handles=handles[0:2], labels=new_labels, title='Diagnosis')
@@ -262,7 +256,6 @@ class ModelEDA:
             # Create the count plot
             ax = sns.countplot(x='Diagnose', hue=var, data=self.df, palette='viridis')
 
-            # Annotate plot with counts
             for p in ax.patches:
                 ax.annotate(f'{int(p.get_height())}',
                             (p.get_x() + p.get_width() / 2., p.get_height()),
@@ -273,7 +266,6 @@ class ModelEDA:
             plt.xlabel('Diagnosis')
             plt.ylabel('Count')
 
-            # Move the legend outside the plot
             plt.legend(title=var, bbox_to_anchor=(1.05, 1), loc='upper left')
 
             plt.tight_layout()
@@ -287,21 +279,18 @@ class ModelEDA:
             # Clean 'Stadium' column, convert to string, and handle NaN values
             stadium_series = self.df['Stadium'].fillna('No Stadium').astype(str)
 
-            # Get the unique values and sort them, excluding 'No Stadium'
             unique_stages = sorted(stadium_series.unique(), key=lambda x: (x.isdigit(), x))
 
-            # Move 'No Stadium' to the end of the list if it exists
             if 'No Stadium' in unique_stages:
                 unique_stages.append(unique_stages.pop(unique_stages.index('No Stadium')))
 
-            # Now create the boxplot with the sorted, cleaned list
             ax = sns.stripplot(x=stadium_series, y=model, data=self.df, order=unique_stages)
 
             ax.set_title(f'Relationship of {model} with Cancer Stages')
             ax.set_ylim(0, 103)
             ax.set_xlabel('Cancer Stage')
             ax.set_ylabel(f'{model} Score')
-            plt.xticks(rotation=45)  # Rotate the x-axis labels for better readability if necessary
+            plt.xticks(rotation=45)
             plt.show()
 
 
@@ -312,13 +301,10 @@ class ModelEDA:
         # Clean 'Stadium' column, handle NaN values and convert all to string for consistency
         stadium_series = self.df['Stadium'].fillna('No Stadium').astype(str)
 
-        # Convert '0' to 'Stage 0' to distinguish it as a category
         stadium_series = stadium_series.replace('0', 'Stage 0')
 
-        # Calculate the frequency of each category
         stadium_counts = stadium_series.value_counts().sort_index()
 
-        # Plot a bar chart
         stadium_counts.plot(kind='bar')
         plt.title('Frequency of Each Cancer Stage')
         plt.xlabel('Cancer Stage')
@@ -332,10 +318,8 @@ class ModelEDA:
         # Select only the columns related to protein markers and model scores
         data_subset = self.df[self.numerical_vars + self.models]
 
-        # Compute the correlation matrix
         corr_matrix = data_subset.corr()
 
-        # Plot the heatmap
         plt.figure(figsize=(12, 10))
         sns.heatmap(corr_matrix, annot=True, cmap='coolwarm', fmt='.2f')
         plt.title('Correlation Heatmap of Protein Markers and LC/NSCLC Values')
@@ -358,17 +342,14 @@ class ModelEDA:
             for var in self.categorical_vars:
                 fig, ax = plt.subplots(figsize=(10, 6))
 
-                # Use valid_data which has dropped NaN values for the current model and categorical variables
                 valid_data = self.df.dropna(subset=[model_name, model, var])
 
                 # KDE plot overlay
                 sns.kdeplot(x=model_name, y=model, data=valid_data, fill=True,
                             levels=5, alpha=0.7, color='grey', ax=ax)
 
-                # Define marker styles for categories
                 marker_styles = ['o', 's', 'D', '^', 'v', '<', '>', 'p', '*', 'h', 'H', '+', 'x', 'X', 'd', '|', '_']
 
-                # Map "ja" and "nee" to "yes" and "no"
                 value_mapping = {'ja': 'yes', 'nee': 'no'}
                 valid_data[var] = valid_data[var].map(value_mapping).fillna(valid_data[var])
                 unique_values_mapped = valid_data[var].unique()
@@ -426,7 +407,7 @@ class ModelEDA:
             plt.xlabel(model_name)
             plt.ylabel(f'{model} Score')
             plt.legend(title='Diagnose')
-            plt.tight_layout()  # Adjust the layout to make room for the legend
+            plt.tight_layout()
             plt.show()
 
     def plot_roc_curve(self, true_label_col, score_col, n_splits=5, random_state=42):
@@ -441,8 +422,7 @@ class ModelEDA:
 
         fig, ax = plt.subplots(figsize=(10, 8))
 
-        for fold, (train, test) in enumerate(cv.split(scores.reshape(-1, 1), y)):  # scores need to be reshaped if it's a 1D array
-            # No model fitting, since you're using pre-calculated scores
+        for fold, (train, test) in enumerate(cv.split(scores.reshape(-1, 1), y)):
             fpr, tpr, thresholds = roc_curve(y[test], scores[test])
             roc_auc = auc(fpr, tpr)
             aucs.append(roc_auc)
@@ -484,13 +464,11 @@ class ModelEDA:
         - threshold: The threshold for predicting the positive class (default is 10% or 0.1).
         """
         for model in self.models:
-            # Ensure there are no NaN values for the model scores and diagnosis
             clean_df = self.df.dropna(subset=[model, 'Diagnosis_Encoded'])
 
             # Apply threshold to model scores to generate binary predictions
             predictions = (clean_df[model] >= threshold).astype(int)
 
-            # Generate the confusion matrix
             cm = confusion_matrix(clean_df['Diagnosis_Encoded'], predictions)
 
             # Calculate sensitivity (True Positive Rate) and specificity (True Negative Rate)
@@ -512,57 +490,10 @@ class ModelEDA:
                       f'Sensitivity: {sensitivity:.2f}, Specificity: {specificity:.2f}')
             plt.show()
 
-    def calculate_best_sensitivity_specificity(self):
-        """
-        Calculates the optimal threshold for each model based on clinical decision analysis.
-        """
-        clinical_values = {
-            'TP': -1,  # Cost/benefit of a true positive (e.g., early treatment)
-            'FP': -5,  # Cost of a false positive (e.g., unnecessary treatment)
-            'TN': 0,   # Benefit of a true negative
-            'FN': -20  # Cost of a false negative (e.g., missed diagnosis)
-        }
-
-        optimal_results = {}
-        for model in self.models:
-            clean_df = self.df.dropna(subset=[model, 'Diagnosis_Encoded'])
-            thresholds = sorted(clean_df[model].unique())
-            best_clinical_value = float('inf')
-            best_threshold = None
-
-            for threshold in thresholds:
-                predictions = (clean_df[model] >= threshold).astype(int)
-                cm = confusion_matrix(clean_df['Diagnosis_Encoded'], predictions)
-                TP = cm[1, 1]
-                TN = cm[0, 0]
-                FP = cm[0, 1]
-                FN = cm[1, 0]
-
-                # Calculate the clinical value for the current threshold
-                current_clinical_value = (
-                                        TP * clinical_values['TP'] +
-                                        FP * clinical_values['FP'] +
-                                        TN * clinical_values['TN'] +
-                                        FN * clinical_values['FN']
-                                        )
-                # If the current clinical value is less than the best (since costs are negative, we want the least negative value),
-                # update the best clinical value and corresponding threshold
-                if current_clinical_value < best_clinical_value:
-                    best_clinical_value = current_clinical_value
-                    best_threshold = threshold
-
-            # Assuming that lower costs are better, find the threshold with the minimum cost
-            optimal_results[model] = {
-                'Optimal Threshold': best_threshold,
-                'Clinical Value': best_clinical_value
-            }
-        print(optimal_results)
-        return optimal_results
     def test_numerical_variable_significance_with_diagnosis(self):
         """Test the association between protein markers and binary diagnosis using logistic regression."""
         print("Testing association between protein markers and diagnosis:\n" + "="*60)
 
-        # Encode the diagnosis variable: 'No LC' to 0, 'NSCLC' to 1
         self.df['Diagnosis_Encoded'] = np.where(self.df['Diagnose'] == 'No LC', 0, 1)
 
         for marker in self.numerical_vars:
@@ -571,7 +502,7 @@ class ModelEDA:
             # Prepare the data: drop rows with NaN in either the marker or the encoded diagnosis
             data = self.df.dropna(subset=[marker, 'Diagnosis_Encoded'])
 
-            # Logistic regression
+            # Logistic regression/Wald Test
             X = sm.add_constant(data[marker])  # Adds a constant term to the predictor
             y = data['Diagnosis_Encoded']
 
@@ -595,7 +526,6 @@ class ModelEDA:
         for model in self.models:
             print(f"\nTesting significance for model: {model}\n" + "="*60)
             for marker in self.numerical_vars:
-                # Ensure no NaN values are present in the series
                 clean_marker = self.df[marker].dropna()
                 clean_model_scores = self.df[model].dropna()
 
@@ -664,10 +594,8 @@ class ModelEDA:
         # Ensure only valid protein markers present in the DataFrame are considered
         valid_numerical_vars = [marker for marker in self.numerical_vars if marker in self.df.columns]
 
-        # Filter the DataFrame to include only the valid protein markers plus a constant term for the intercept
         X = add_constant(self.df[valid_numerical_vars])
 
-        # Initialize a DataFrame to store VIF results
         vif_data = pd.DataFrame()
         vif_data["Protein Marker"] = X.columns.drop('const')  # Exclude the constant term from the results
         vif_data["VIF"] = [variance_inflation_factor(X.values, i) for i in range(1, len(X.columns))]  # Skip the first index for 'const'
@@ -684,8 +612,8 @@ eda = ModelEDA(filepath)
 #eda.plot_stadium_frequency()
 # eda.plot_node_size_distributions()
 # eda.plot_numerical_vars_distribution()
-eda.plot_model_score_vs_model_score('Herder score (%)')
-eda.plot_model_score_vs_model_score_by_diagnosis('Herder score (%)')
+# eda.plot_model_score_vs_model_score('Herder score (%)')
+# eda.plot_model_score_vs_model_score_by_diagnosis('Herder score (%)')
 # eda.generate_summary_table()
 # eda.plot_confusion_matrices()
 # eda.calculate_best_sensitivity_specificity()
@@ -693,8 +621,8 @@ eda.plot_model_score_vs_model_score_by_diagnosis('Herder score (%)')
 # eda.test_protein_marker_significance_with_model()
 # eda.test_significance_of_categorical_variables_with_diagnosis()
 # eda.test_numerical_variable_significance_with_diagnosis()
-# vif_results=eda.calculate_vif_for_numerical_vars()
-# print(vif_results)
+vif_results=eda.calculate_vif_for_numerical_vars()
+print(vif_results)
 
 #=========================#
 # SIMPLE MODEL EVALUATION #
@@ -702,7 +630,7 @@ eda.plot_model_score_vs_model_score_by_diagnosis('Herder score (%)')
 
 # Preprocess the data
 # eda.preprocess_data()
-# model_score = 'Herder score (%)'
+# model_score = 'Herder score (%)' # Change to the specified model score
 # target_variable = 'Diagnosis_Encoded'
 # threshold = 10
 # avg_metrics = eda.evaluate_simple_model_scores(target_variable, model_score, threshold)

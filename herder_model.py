@@ -9,6 +9,31 @@ from sklearn.model_selection import StratifiedKFold
 
 
 class HerderModel(BaseEstimator, ClassifierMixin):
+    """
+    Implements a two-stage predictive model using logistic regression. The model comprises a main classifier
+    (MCP model) and a secondary classifier (Herder model), each with selected features and logistic regression.
+
+    The MCP model is trained first, and its predictions are used as inputs along with other selected features
+    for the Herder model. This architecture allows for hierarchical feature utilization and decision making.
+
+    Methods:
+    - select_features_rf: Selects features based on importance using a Random Forest classifier.
+    - select_features_l1: Selects features using L1 regularization to enforce sparsity.
+    - select_features_rfe: Selects features using Recursive Feature Elimination with cross-validation.
+    - fit: Trains the MCP and Herder models on the given data.
+    - predict: Predicts the class labels for the provided data.
+    - predict_proba: Predicts class probabilities for the provided data.
+    - get_all_selected_features: Returns a combined list of all selected features for both models.
+    - print_model_formulae: Prints the logistic regression formulae for both models.
+
+    Attributes:
+    - preprocessor: The preprocessing object to apply to data before training models.
+    - n_splits: Number of splits for cross-validation.
+    - mcp_model, herder_model: Logistic regression models for MCP and Herder stages.
+    - mcp_features, herder_features: Lists of feature names used by the MCP and Herder models.
+    - model_metrics: Dictionary to store performance metrics of the model.
+    - is_fitted: Boolean flag to indicate if the models have been fitted.
+    """
     def __init__(self, preprocessor, n_splits=5):
         self.preprocessor = preprocessor
         self.n_splits = n_splits
